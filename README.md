@@ -64,12 +64,14 @@ If you're in a fullscreen game or watching a video, it leaves your workspace alo
 
 ## The overlay
 
-While Claude is working, a soft orange glow sits along the edges of the screen, slowly swelling and drifting so it feels alive without getting in the way. Claude also gets a small cursor of its own with a "Claude" tag, and a glass pill at the bottom says what it's doing. Where it shows depends on what Claude is doing:
+While Claude is working, a thin orange line runs along the edge of the screen with a short bright streak slowly travelling around it. Claude also gets a small cursor of its own with a "Claude" tag, and a glass pill at the bottom says what it's doing. Where it shows depends on what Claude is doing:
 
-- working on your screen: a glow on all edges
-- working in a window next to yours: a faint halo around just that window
-- working on the workspace to your left or right: a faint glow on that edge only
+- working on your screen: the line goes around the whole screen
+- working in a window next to yours: it traces just that window
+- working on the workspace to your left or right: only that edge lights up
 - you're gaming or watching something fullscreen: only a small pill in the top right corner
+
+There are a few other looks if the line isn't your thing. Set `"overlay_style"` in the config to `hairline` (the default), `brackets` (viewfinder corners), `spotlight` (a warm glow under the pill, nothing on the edges), `minimal` (just the pill and cursor) or `glow` (a soft glow on the edges). Previews are in [docs/options](docs/options).
 
 It runs on Quickshell as its own layer. Your mouse goes straight through it, and a layer rule keeps it out of screen captures, so Claude never sees it in its own screenshots and it never shows up in your recordings or streams. The pill gets Hyprland's blur from a rule the server adds at runtime, so nothing in your config changes.
 
@@ -121,6 +123,7 @@ Settings live in `~/.config/sudoclaude/config.json`:
   "notifications": true,
   "overlay": true,
   "copilot": true,
+  "overlay_style": "hairline",
   "idle_seconds": 25,
   "voice": {
     "tts": "chatterbox",
