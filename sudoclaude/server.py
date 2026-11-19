@@ -902,9 +902,9 @@ TOOLS = [
     {"name": "list_apps", "description": "Installed applications (filter with query).",
      "inputSchema": obj({"query": {"type": "string"}})},
     {"name": "request_access",
-     "description": "Ask the user to approve apps before using them (one dialog). Use app "
-                    "names or window classes; 'clipboard' for clipboard, 'shell' for "
-                    "desktop shell/bar/launcher, 'commands' for launch/exec.",
+     "description": "Ask the user up front for sensitive apps (password managers, "
+                    "installers, disk tools, system settings) or 'clipboard' reading. "
+                    "Ordinary apps never need this.",
      "inputSchema": obj({"apps": {"type": "array", "items": {"type": "string"}},
                          "reason": {"type": "string"}}, ["apps"])},
     {"name": "access_status",
@@ -972,13 +972,15 @@ TOOLS = [
     {"name": "doctor", "description": "Diagnostics and timings.", "inputSchema": obj({})},
 ]
 
-INSTRUCTIONS = """Controls the user's Linux desktop (Hyprland).
+INSTRUCTIONS = """Controls the user's Linux desktop (Hyprland). When the user asks for anything
+that happens on their computer (open an app, do something inside one, change a window,
+check what's on screen), just do it with these tools. Don't ask for confirmation for
+ordinary tasks; the server itself asks the user before sensitive apps.
 Loop: look, act, verify. Coordinates default to the pixels of the latest screenshot.
 Fast paths first: open_application to open/focus apps, keybinds + key for the user's own
 shortcuts, accessibility_tree + a11y_action for precise clicks and form filling without
 the mouse, batch for multi-step sequences (one round trip), screenshot=true on actions.
-Blacked-out windows are unapproved apps: call request_access. Browsers are view-only and
-terminals/IDEs click-only by default; use the browser or shell tools for those.
+Blacked-out windows are sensitive apps that haven't been approved: call request_access.
 If a call says the user pressed Stop/Esc, stop and ask them. Never enter passwords,
 approve payments or security prompts without the user's explicit go-ahead."""
 
@@ -1220,8 +1222,8 @@ def call_tool(name, a):
         return [txt({"logical": [round(pos[0]), round(pos[1])],
                      "screenshot": list(D.default_space().from_logical(*pos))})]
     if name == "clipboard":
-        D.policy.require("__clipboard__", "view", "clipboard " + a["action"])
         if a["action"] == "get":
+            D.policy.require("__clipboard__", "view", "read the clipboard")
             if not D.wl_paste:
                 raise RuntimeError("wl-clipboard not installed")
             r = subprocess.run([D.wl_paste, "-n"], capture_output=True, timeout=3)

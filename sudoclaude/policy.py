@@ -15,18 +15,26 @@ ABORT_FILE = os.path.join(RUNTIME, "sudoclaude.abort")
 LOCK_FILE = os.path.join(RUNTIME, "sudoclaude.lock")
 
 DEFAULTS = {
-    "approvals": "prompt",          # "prompt" | "off" (trust everything)
-    "session_minutes": 60,          # how long "Allow for session" lasts
+    "approvals": "smart",           # smart | strict | off
+    "session_minutes": 60,
     "always_allow": [],
-    "denied": ["bitwarden", "keepassxc", "1password", "proton-pass", "seahorse",
-               "org.gnome.seahorse.application", "enpass"],
-    "tier_overrides": {},           # {"zen": "full", "kitty": "full"}
-    "mask_unapproved": True,        # black out unapproved windows in screenshots
+    "denied": [],
+    "sensitive": [],                # extra window classes that should ask first
+    "tier_overrides": {},
+    "mask_unapproved": True,
     "esc_to_stop": True,
     "notifications": True,
     "overlay": True,
-    "idle_seconds": 25,             # after this long without actions -> inactive
+    "idle_seconds": 25,
 }
+
+SENSITIVE = r"^(bitwarden|keepassxc|org\.keepassxc\.keepassxc|1password|proton-pass|" \
+    r"proton\.pass|enpass|seahorse|org\.gnome\.seahorse.*|kwalletmanager.*|" \
+    r"octopi|pamac.*|bauh|gnome-software|org\.gnome\.software|plasma-discover|" \
+    r"org\.kde\.discover|garuda-.*|timeshift.*|gparted|org\.gnome\.disks|" \
+    r"gnome-disks|partitionmanager|org\.kde\.partitionmanager|" \
+    r"systemsettings|org\.kde\.systemsettings|gnome-control-center|" \
+    r"__clipboard__)$"
 
 VIEW_ONLY = r"^(firefox|zen|zen-.*|app\.zen_browser\.zen|chromium|google-chrome.*|brave.*|" \
     r"vivaldi.*|opera|microsoft-edge.*|librewolf|floorp|firedragon|falkon|" \
@@ -45,6 +53,11 @@ SENTINELS = [
     (r"^(gnome-control-center|systemsettings|org\.kde\.systemsettings|"
      r"nwg-look|garuda-settings-manager|qt5ct|qt6ct|octopi|pamac.*|bauh)$",
      "Can change system settings / install software"),
+    (r"^(bitwarden|keepassxc|.*keepassxc|1password|proton-pass|proton\.pass|enpass|"
+     r"seahorse|.*seahorse.*|kwalletmanager.*)$", "Password manager"),
+    (r"^(timeshift.*|gparted|.*disks|partitionmanager|.*partitionmanager)$",
+     "Can modify disks and partitions"),
+    (r"^(__clipboard__)$", "Clipboard often holds passwords and private text"),
     (r"^(__shell__)$", "Desktop shell: bar, launcher, notifications, overview"),
     (r"^(__launch__)$", "Can run any command (equivalent to shell access)"),
 ]
@@ -54,7 +67,7 @@ HARD_BLOCK = r"^(claude|claude-desktop|com\.anthropic\.claude.*|zenity|org\.kde\
 
 PRETTY = {"__shell__": "Desktop shell (bar, launcher, overview)",
           "__launch__": "Run commands / launch programs",
-          "__clipboard__": "Clipboard (read and write)"}
+          "__clipboard__": "Read your clipboard"}
 
 
 def _norm(app):
@@ -125,6 +138,8 @@ class Policy:
         ov = {_norm(k): v for k, v in self.cfg.get("tier_overrides", {}).items()}
         if a in ov:
             return ov[a]
+        if self.cfg.get("approvals") != "strict" and self.cfg.get("approvals") != "prompt":
+            return "full"
         if re.match(VIEW_ONLY, a):
             return "view"
         if re.match(CLICK_ONLY, a):
@@ -141,6 +156,11 @@ class Policy:
     def hard_blocked(self, app):
         return bool(re.match(HARD_BLOCK, _norm(app)))
 
+    def is_sensitive(self, app):
+        a = _norm(app)
+        return bool(re.match(SENSITIVE, a)) or a in {_norm(x) for x in
+                                                     self.cfg.get("sensitive", [])}
+
     def is_denied(self, app):
         a = _norm(app)
         return a in {_norm(x) for x in self.cfg.get("denied", [])} or \
@@ -150,11 +170,14 @@ class Policy:
         self._refresh()
         if self.hard_blocked(app):
             return False
-        if self.cfg.get("approvals") == "off":
+        mode = self.cfg.get("approvals")
+        if mode == "off":
             return not self.is_denied(app)
         a = _norm(app)
         if self.is_denied(app):
             return False
+        if mode not in ("strict", "prompt") and not self.is_sensitive(app):
+            return True
         if a in {_norm(x) for x in self.cfg.get("always_allow", [])}:
             return True
         return self.session.get(a, 0) > time.time()
@@ -207,8 +230,10 @@ class Policy:
             t = self.tier(a)
             tier_s = {"view": "view only", "click": "click only", "full": "full control"}[t]
             w = self.warning(a)
-            lines.append(f"• {PRETTY.get(a, a)}  ({tier_s})" + (f"\n   ⚠ {w}" if w else ""))
-        body = "Claude wants to control:\n\n" + "\n".join(lines)
+            strict = self.cfg.get("approvals") in ("strict", "prompt")
+            lines.append(f"• {PRETTY.get(a, a)}" + (f"  ({tier_s})" if strict else "") +
+                         (f"\n   ⚠ {w}" if w else ""))
+        body = "Claude wants to use:\n\n" + "\n".join(lines)
         if reason:
             body += f"\n\nFor: {reason[:160]}"
         choice = show_dialog("Allow Claude to use these apps?", body)

@@ -33,7 +33,11 @@ Input goes through the Wayland virtual pointer and virtual keyboard protocols ov
 
 ## Permissions
 
-The first time Claude needs an app you get a dialog with three choices: allow for this session (an hour by default), always allow, or deny. It follows the same rules as Claude's own computer use. Browsers are view only and terminals and IDEs are click only, and apps that are basically shell access, like terminals, file managers and settings, come with a warning in the dialog. Password managers start out denied. Claude can never control itself, its own approval dialogs or polkit prompts. Windows you haven't approved show up blacked out in its screenshots.
+Ask it to do something and it does it. Opening apps, clicking around, typing in a terminal and switching workspaces all happen without a confirmation dialog.
+
+It only stops to ask for things that are actually sensitive: password managers, software installers and package managers, disk and partition tools, system settings, and reading the clipboard (which tends to have passwords in it). You get one dialog with allow for this session, always allow, or deny, and windows from those apps stay blacked out in Claude's screenshots until you allow them. Claude can never control itself, its own approval dialogs or polkit prompts.
+
+If you want the stricter rules Claude uses on macOS (browsers view only, terminals and IDEs click only, a dialog for every new app), set `"approvals": "strict"`.
 
 Only one Claude session can drive the desktop at a time.
 
@@ -49,11 +53,12 @@ Settings live in `~/.config/sudoclaude/config.json`:
 
 ```json
 {
-  "approvals": "prompt",
+  "approvals": "smart",
   "session_minutes": 60,
   "always_allow": [],
-  "denied": ["bitwarden", "keepassxc", "1password"],
-  "tier_overrides": {"zen": "full"},
+  "denied": [],
+  "sensitive": ["signal"],
+  "tier_overrides": {},
   "mask_unapproved": true,
   "esc_to_stop": true,
   "notifications": true,
@@ -62,7 +67,7 @@ Settings live in `~/.config/sudoclaude/config.json`:
 }
 ```
 
-`tier_overrides` takes `view`, `click` or `full` per window class, so you can give a browser full control if you want. Setting `approvals` to `off` skips the dialogs entirely, which I wouldn't do.
+`sensitive` adds your own window classes to the ask-first list, and `denied` blocks apps completely. `approvals` can be `smart` (the default), `strict`, or `off`, which never asks about anything. `tier_overrides` takes `view`, `click` or `full` per window class and mostly matters in strict mode.
 
 ## If something's off
 
