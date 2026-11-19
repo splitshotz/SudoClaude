@@ -25,6 +25,7 @@ ShellRoot {
     property string voice: ""
     property string transcript: ""
     property real level: 0
+    property string style: "hairline"
     property int rippleSeq: 0
     property real rippleX: 0
     property real rippleY: 0
@@ -42,7 +43,7 @@ ShellRoot {
     function handle(m) {
         for (const k of ["active", "capturing", "stopped", "idle", "status", "detail", "action",
                          "mode", "side", "winX", "winY", "winW", "winH", "voice", "transcript",
-                         "level"]) {
+                         "level", "style"]) {
             if (m[k] !== undefined) shell[k] = m[k]
         }
         if (m.screen !== undefined) shell.focusScreen = m.screen
@@ -107,6 +108,7 @@ ShellRoot {
                 voice: shell.voice
                 transcript: shell.transcript
                 level: shell.level
+                style: shell.style
                 cursorX: shell.cx
                 cursorY: shell.cy
                 focused: win.here

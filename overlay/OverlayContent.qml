@@ -24,6 +24,8 @@ Item {
     property real winW: 0
     property real winH: 0
     property string voice: ""
+    property string style: "hairline"
+    property real topInset: 40
     property string transcript: ""
     property real level: 0
     property bool showPill: true
@@ -57,8 +59,10 @@ Item {
     onLevelChanged: smoothLevel = level
 
     readonly property bool edgeMode: active && (mode === "full" || mode === "side")
+    readonly property bool windowOn: focused && active && mode === "window" && winW > 0
+    readonly property bool listenOnly: listening && !edgeMode
     readonly property real edgeTarget: !root.focused ? 0
-        : listening && !edgeMode ? 0.55 + 0.9 * smoothLevel
+        : listening && !edgeMode ? 0.6
         : mode === "full" ? (idle ? 0.55 : 0.8)
         : mode === "side" ? 0.5
         : 0
@@ -68,8 +72,9 @@ Item {
         anchors.fill: parent
         seed: 3.7
         level: root.smoothLevel
-        intensity: root.edgeTarget * root.breathe
-        Behavior on intensity { NumberAnimation { duration: 700; easing.type: Easing.InOutSine } }
+        property real base: root.style === "glow" ? root.edgeTarget : 0
+        Behavior on base { NumberAnimation { duration: 700; easing.type: Easing.InOutSine } }
+        intensity: base * (root.breathe + (root.listenOnly ? 0.8 * root.smoothLevel : 0))
         el: (root.mode === "full" || (root.mode === "side" && root.side === "left")) && root.edgeMode ? 1 : 0
         er: (root.mode === "full" || (root.mode === "side" && root.side === "right")) && root.edgeMode ? 1 : 0
         et: root.mode === "full" && root.edgeMode ? 0.85 : 0
@@ -98,9 +103,102 @@ Item {
         Behavior on ry { NumberAnimation { duration: 650; easing.type: Easing.InOutCubic } }
         Behavior on rw { NumberAnimation { duration: 650; easing.type: Easing.InOutCubic } }
         Behavior on rh { NumberAnimation { duration: 650; easing.type: Easing.InOutCubic } }
-        intensity: root.focused && root.active && root.mode === "window" && root.winW > 0
-                   ? (root.idle ? 0.6 : 0.95) * root.breathe : 0
-        Behavior on intensity { NumberAnimation { duration: 700; easing.type: Easing.InOutSine } }
+        property real base: root.style === "glow" && root.windowOn ? (root.idle ? 0.6 : 0.95) : 0
+        Behavior on base { NumberAnimation { duration: 700; easing.type: Easing.InOutSine } }
+        intensity: base * root.breathe
+    }
+
+    // ---- hairline: a thin line on the edge with a slow comet running round it
+    EdgeLine {
+        anchors.fill: parent
+        intensity: root.style === "hairline" && root.focused && (root.edgeMode || root.listenOnly)
+                   ? (root.idle ? 0.55 : 0.9) : 0
+        Behavior on intensity { NumberAnimation { duration: 600; easing.type: Easing.InOutSine } }
+        el: root.mode === "full" && !root.listenOnly || (root.mode === "side" && root.side === "left") ? 1 : 0
+        er: root.mode === "full" && !root.listenOnly || (root.mode === "side" && root.side === "right") ? 1 : 0
+        et: root.mode === "full" && !root.listenOnly ? 1 : 0
+        eb: root.mode === "full" || root.listenOnly ? 1 : 0
+        Behavior on el { NumberAnimation { duration: 700 } }
+        Behavior on er { NumberAnimation { duration: 700 } }
+        Behavior on et { NumberAnimation { duration: 700 } }
+        Behavior on eb { NumberAnimation { duration: 700 } }
+        travelling: !root.idle && !root.listenOnly
+        level: root.listenOnly ? root.smoothLevel : 0
+    }
+    EdgeLine {
+        anchors.fill: parent
+        intensity: (root.style === "hairline" || root.style === "spotlight") && root.windowOn
+                   ? (root.idle ? 0.6 : 1) : 0
+        Behavior on intensity { NumberAnimation { duration: 600; easing.type: Easing.InOutSine } }
+        outside: true
+        radius: 14
+        travelling: root.style === "hairline" && !root.idle
+        lapSeconds: 8
+        rx: root.winX - root.originX - 2
+        ry: root.winY - root.originY - 2
+        rw: Math.max(1, root.winW + 4)
+        rh: Math.max(1, root.winH + 4)
+        Behavior on rx { NumberAnimation { duration: 650; easing.type: Easing.InOutCubic } }
+        Behavior on ry { NumberAnimation { duration: 650; easing.type: Easing.InOutCubic } }
+        Behavior on rw { NumberAnimation { duration: 650; easing.type: Easing.InOutCubic } }
+        Behavior on rh { NumberAnimation { duration: 650; easing.type: Easing.InOutCubic } }
+    }
+
+    // ---- brackets: viewfinder corners, never over anything you're looking at
+    Brackets {
+        objectName: "screenBrackets"
+        anchors.fill: parent
+        property real base: root.style === "brackets" && root.focused && (root.edgeMode || root.listenOnly)
+                   ? (root.idle ? 0.5 : 0.95) : 0
+        Behavior on base { NumberAnimation { duration: 500; easing.type: Easing.InOutSine } }
+        intensity: base * (root.breathe + (root.listenOnly ? 0.45 * root.smoothLevel : 0))
+        rx: 16; ry: root.topInset + 12
+        rw: root.width - 32; rh: root.height - root.topInset - 28
+        tl: root.mode === "full" && !root.listenOnly || (root.mode === "side" && root.side === "left") ? 1 : 0
+        bl: root.mode === "full" || root.listenOnly || (root.mode === "side" && root.side === "left") ? 1 : 0
+        tr: root.mode === "full" && !root.listenOnly || (root.mode === "side" && root.side === "right") ? 1 : 0
+        br: root.mode === "full" || root.listenOnly || (root.mode === "side" && root.side === "right") ? 1 : 0
+        Behavior on tl { NumberAnimation { duration: 600 } }
+        Behavior on tr { NumberAnimation { duration: 600 } }
+        Behavior on bl { NumberAnimation { duration: 600 } }
+        Behavior on br { NumberAnimation { duration: 600 } }
+    }
+    Brackets {
+        anchors.fill: parent
+        len: 38
+        property real base: root.style === "brackets" && root.windowOn ? (root.idle ? 0.5 : 0.95) : 0
+        Behavior on base { NumberAnimation { duration: 500; easing.type: Easing.InOutSine } }
+        intensity: base * root.breathe
+        rx: root.winX - root.originX - 10
+        ry: root.winY - root.originY - 10
+        rw: root.winW + 20
+        rh: root.winH + 20
+        Behavior on rx { NumberAnimation { duration: 650; easing.type: Easing.InOutCubic } }
+        Behavior on ry { NumberAnimation { duration: 650; easing.type: Easing.InOutCubic } }
+        Behavior on rw { NumberAnimation { duration: 650; easing.type: Easing.InOutCubic } }
+        Behavior on rh { NumberAnimation { duration: 650; easing.type: Easing.InOutCubic } }
+    }
+
+    // ---- spotlight: nothing on the screen edges, a warm pool of light under the pill
+    Aura {
+        objectName: "spotAura"
+        width: 760 + 260 * root.smoothLevel
+        height: 150 + 70 * root.smoothLevel
+        anchors.horizontalCenter: parent.horizontalCenter
+        y: root.height - height / 2 - 4
+        property real base: root.style === "spotlight" && root.focused && (root.mode === "full" || root.listenOnly)
+                   && (root.active || root.listening) ? (root.idle ? 0.55 : 0.95) : 0
+        Behavior on base { NumberAnimation { duration: 600; easing.type: Easing.InOutSine } }
+        intensity: base * root.breathe
+    }
+    Aura {
+        width: 90; height: 520
+        x: root.side === "left" ? -width / 2 : root.width - width / 2
+        anchors.verticalCenter: parent.verticalCenter
+        property real base: (root.style === "spotlight" || root.style === "minimal") && root.focused
+                   && root.active && root.mode === "side" ? 0.9 : 0
+        Behavior on base { NumberAnimation { duration: 600; easing.type: Easing.InOutSine } }
+        intensity: base * root.breathe
     }
 
     Component {
