@@ -17,7 +17,7 @@ from .hyprconf import KeybindLabels
 from .overlay import Overlay
 from .policy import Policy
 from .wayland import (BUTTONS, MODIFIER_CODES, NAMED_KEYS, US_CHARS, Connection,
-                      VirtualKeyboard, VirtualPointer, WaylandError)
+                      VirtualKeyboard, VirtualPointer, WaylandError, find_socket)
 
 VERSION = "2.1.0"
 MAX_EDGE = int(os.environ.get("SUDOCLAUDE_MAX_EDGE", "1568"))
@@ -1141,14 +1141,17 @@ TOOLS = [
                     "windows, focus, bar layers), windows, focus_window, workspace "
                     "(target '3', 'e+1', 'special:name'; op switch|move|move_silent|"
                     "toggle_special), keybinds (the user's live binds with cheatsheet "
-                    "labels), monitors, switch_display, launch (any command), "
-                    "hypr_dispatch, hypr_query, clipboard_get, clipboard_set, list_apps, "
-                    "doctor.",
+                    "labels), monitors, switch_display, launch (any command; target = a "
+                    "workspace to open it there in the background), hypr_dispatch (Lua "
+                    "on Hyprland 0.54+, e.g. 'hl.dsp.window.fullscreen()'; legacy words "
+                    "like 'workspace 3' also work), hypr_query (e.g. 'j/clients', or "
+                    "'repl <lua>'), clipboard_get, clipboard_set, list_apps, doctor, "
+                    "reload (restart this server to pick up code changes).",
      "inputSchema": {"type": "object", "properties": {
          "action": {"type": "string", "enum": [
              "state", "windows", "focus_window", "workspace", "keybinds", "monitors",
              "switch_display", "launch", "hypr_dispatch", "hypr_query", "clipboard_get",
-             "clipboard_set", "list_apps", "doctor"]},
+             "clipboard_set", "list_apps", "doctor", "reload"]},
          "target": {"type": "string"}, "op": {"type": "string"},
          "id": {"type": "string"}, "app": {"type": "string"}, "title": {"type": "string"},
          "query": {"type": "string"}, "command": {"type": "string"},
@@ -1397,6 +1400,11 @@ def tool_desktop(a):
     act = a["action"]
     if act == "doctor":
         return [txt(json.dumps(doctor(), indent=1))]
+    if act == "reload":
+        D.policy.cleanup()
+        D.overlay.stop()
+        sys.stdout.flush()
+        os.execv(sys.executable, [sys.executable] + sys.argv)
     if act == "list_apps":
         q = (a.get("query") or "").lower()
         lst = [x.as_dict() for x in apps.list_apps()
@@ -1447,13 +1455,15 @@ def tool_desktop(a):
         return [txt(f"focused {w['app']}: {w['title'][:60]}")] + after_blocks(a.get("after"))
     if act == "workspace":
         op, tgt = a.get("op", "switch"), str(a.get("target", "")).strip()
-        disp = {"switch": "workspace", "move": "movetoworkspace",
-                "move_silent": "movetoworkspacesilent",
-                "toggle_special": "togglespecialworkspace"}[op]
         if not tgt and op != "toggle_special":
             raise ValueError("target required")
         D.begin("Switching workspace" if op == "switch" else "Moving window", tgt)
-        c.dispatch(disp, tgt) if tgt else c.dispatch(disp)
+        if op == "switch":
+            c.switch_workspace(tgt)
+        elif op in ("move", "move_silent"):
+            c.move_to_workspace(tgt, op == "move_silent", a.get("id"))
+        else:
+            c.toggle_special(tgt)
         return [txt(f"{op} {tgt}".strip())] + after_blocks(a.get("after"))
     if act == "keybinds":
         out = []
@@ -1471,18 +1481,26 @@ def tool_desktop(a):
     if act == "launch":
         D.policy.require("__launch__", "view", a["command"])
         D.begin("Launching", a["command"].split()[0])
-        c.launch(a["command"])
+        rules = {}
+        if a.get("target"):
+            rules["workspace"] = str(a["target"]) + (" silent" if a.get("op") != "follow" else "")
+            rules["no_initial_focus"] = True
+            rules["render_unfocused"] = True
+        c.launch(a["command"], rules or None)
         if a.get("wait_ms"):
             time.sleep(a["wait_ms"] / 1000)
         return [txt(f"launched {a['command']}")] + after_blocks(a.get("after"))
     if act == "hypr_dispatch":
         d = (a.get("command") or a.get("target") or "").strip()
-        D.policy.require("__launch__" if d.split()[0] in ("exec", "execr") else
-                         "__shell__", "view", d)
-        D.begin("Window manager", d.split()[0])
-        return [txt(c.dispatch(d))] + after_blocks(a.get("after"))
+        D.policy.require("__launch__" if ("exec" in d.split("(")[0] or d.startswith("exec"))
+                         else "__shell__", "view", d)
+        D.begin("Window manager", d.split("(")[0].split()[0])
+        return [txt(c.run(d))] + after_blocks(a.get("after"))
     if act == "hypr_query":
-        return [txt(c.raw(a.get("query") or a.get("command")))]
+        out = c.raw(a.get("query") or a.get("command"))
+        if len(out) > 8000:
+            out = out[:8000] + f"\n... (truncated, {len(out)} chars total; query more narrowly)"
+        return [txt(out)]
     raise ValueError(f"unknown desktop action {act!r}")
 
 
@@ -1600,7 +1618,10 @@ def doctor():
             "accessibility": a11y.available(),
             "tools": {t: shutil.which(t) for t in ("grim", "tesseract", "wl-copy", "zenity",
                                                     "notify-send", "gtk-launch")},
-            "config": __import__("sudoclaude.policy", fromlist=["x"]).CONFIG_PATH}
+            "config": __import__("sudoclaude.policy", fromlist=["x"]).CONFIG_PATH,
+            "hyprland_lua": bool(D.comp and getattr(D.comp, "lua", False)),
+            "env": {k: os.environ.get(k) for k in ("WAYLAND_DISPLAY", "QT_QPA_PLATFORM",
+                                                   "HYPRLAND_INSTANCE_SIGNATURE", "DISPLAY")}}
     try:
         t0 = time.perf_counter()
         c = D.wl()
@@ -1660,9 +1681,23 @@ def handle(msg):
             "error": {"code": -32601, "message": f"method not found: {method}"}}
 
 
+def fix_env():
+    os.environ.setdefault("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+    if not os.environ.get("WAYLAND_DISPLAY"):
+        try:
+            os.environ["WAYLAND_DISPLAY"] = os.path.basename(find_socket())
+        except Exception:
+            pass
+    os.environ["QT_QPA_PLATFORM"] = "wayland"
+    os.environ["GDK_BACKEND"] = "wayland"
+
+
 def main():
     global D
+    fix_env()
     D = Desktop()
+    if D.comp and D.comp.name == "hyprland":
+        os.environ.setdefault("HYPRLAND_INSTANCE_SIGNATURE", D.comp.signature)
     log(f"v{VERSION} compositor={D.comp.name if D.comp else None}")
     out = sys.stdout.buffer
     try:

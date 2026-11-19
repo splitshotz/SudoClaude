@@ -352,13 +352,9 @@ class Policy:
     def activate(self):
         self.active = True
         self.activated_at = time.time()
-        if self.cfg.get("esc_to_stop") and self.comp and self.comp.name == "hyprland":
+        if self.cfg.get("esc_to_stop") and self.comp:
             try:
-                if not any(ABORT_FILE in (b.get("arg") or "")
-                           for b in self.comp.j("binds")):
-                    # bindn = non-consuming: Esc still reaches apps, and a crash
-                    # can never leave Escape broken.
-                    self.comp.raw(f"keyword bindn , Escape, exec, touch {ABORT_FILE}")
+                self.comp.esc_listen(ABORT_FILE)
             except Exception:
                 pass
         if self.cfg.get("notifications"):
@@ -386,15 +382,9 @@ class Policy:
                     pass
 
     def _unbind_esc(self):
-        if self.comp and self.comp.name == "hyprland":
+        if self.comp:
             try:
-                binds = self.comp.j("binds")
-                users = [b for b in binds if b.get("key") == "Escape"
-                         and not b.get("modmask") and ABORT_FILE not in (b.get("arg") or "")]
-                # `unbind` would also drop the user's own plain-Escape binds; if
-                # they have any, leave ours in place (it only touches a file).
-                if not users:
-                    self.comp.raw("keyword unbind , Escape")
+                self.comp.esc_unlisten(ABORT_FILE)
             except Exception:
                 pass
 
