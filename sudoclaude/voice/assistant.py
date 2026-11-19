@@ -36,6 +36,24 @@ DEFAULTS = {
 
 STOP = re.compile(r"^\W*(stop|cancel|never ?mind|shut up|quiet|be quiet|that's enough|enough|"
                   r"hold on|wait)\W*$", re.I)
+MUSIC = [
+    (re.compile(r"^(pause|pause (the )?(music|song)|pause it|stop the (music|song))$"), "pause", None),
+    (re.compile(r"^(resume|unpause|keep playing|resume (the )?music|play the music|play music)$"),
+     "resume", None),
+    (re.compile(r"^(next|skip|skip it|skip (this|this song|this one)|next (song|track|one))$"),
+     "next", None),
+    (re.compile(r"^(previous|go back|last song|previous (song|track)|play the last song)$"),
+     "previous", None),
+    (re.compile(r"^(what'?s playing|what is playing|what song is this|what'?s this song|"
+                r"who is this|who'?s this)$"), "now_playing", None),
+    (re.compile(r"^(turn (it|the music|this) up|volume up|louder|turn up the music)$"),
+     "volume", 15),
+    (re.compile(r"^(turn (it|the music|this) down|volume down|quieter|turn down the music)$"),
+     "volume", -15),
+]
+OTHER_PLAYERS = re.compile(r"\b(youtube|netflix|spotify|twitch|video|episode|movie|browser|"
+                           r"game|steam|podcast)\b", re.I)
+
 BYE = re.compile(r"\b(that'?s all|that is all|i'?m good|i'?m done|we'?re done|thanks?,? "
                  r"(that'?s it|bye)|goodbye|bye|nothing else)\W*$", re.I)
 
@@ -287,7 +305,41 @@ class Assistant:
 
     # talking -----------------------------------------------------------------
 
+    def fast_music(self, text):
+        """Plain music commands skip the round trip to Claude, like any speaker would."""
+        t = re.sub(r"[^\w' ]", "", text.lower()).strip()
+        t = re.sub(r"^(please |can you |could you )", "", t)
+        t = re.sub(r" please$", "", t)
+        action, delta, query = None, None, None
+        for rx, act, d in MUSIC:
+            if rx.match(t):
+                action, delta = act, d
+                break
+        m = re.match(r"^play (.+?)( on (apple music|cider))?$", t)
+        if not action and m and not OTHER_PLAYERS.search(t) and m.group(1) not in ("it", "that"):
+            action, query = "play", m.group(1)
+        if not action:
+            return False
+        from sudoclaude import music
+
+        def launch(cmd):
+            if self.comp:
+                self.comp.launch(cmd, {"workspace": "special:music silent", "no_initial_focus": True})
+        log("music fast path:", action, query or "")
+        try:
+            said = music.run(action, query=query, delta=delta, launch=launch)
+        except music.MusicError as e:
+            log("music failed:", e)
+            return False
+        if action in ("play", "now_playing"):
+            self.mouth.say(said)
+        else:
+            self.speaker.say(chime("done"))
+        return True
+
     def converse(self, text, followup=False, interrupting=False):
+        if not interrupting and self.fast_music(text):
+            return self.finish()
         while text and not self.stopped.is_set():
             if STOP.match(text):
                 log("stop phrase")

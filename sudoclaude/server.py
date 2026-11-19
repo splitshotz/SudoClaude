@@ -1295,6 +1295,20 @@ TOOLS = [
          "apps": {"type": "array", "items": {"type": "string"}},
          "app": {"type": "string"}, "reason": {"type": "string"}},
          "required": ["action"]}},
+    {"name": "music",
+     "description": "Apple Music through Cider, without touching its window. play (query: "
+                    "song/album/artist name searches Apple Music and plays the top hit; no "
+                    "query resumes; starts Cider if needed), pause, resume, next, previous, "
+                    "now_playing, volume (percent, omit to read), seek (seconds), shuffle, "
+                    "repeat, queue.",
+     "inputSchema": {"type": "object", "properties": {
+         "action": {"type": "string", "enum": ["play", "pause", "resume", "next", "previous",
+                                               "now_playing", "volume", "seek", "shuffle",
+                                               "repeat", "queue"]},
+         "query": {"type": "string"},
+         "kind": {"type": "string", "enum": ["songs", "albums", "artists", "playlists"]},
+         "percent": {"type": "integer"}, "seconds": {"type": "integer"}},
+         "required": ["action"]}},
 ]
 
 INSTRUCTIONS = """Controls the user's Linux desktop (Hyprland). Whenever the user wants
@@ -1684,8 +1698,28 @@ def tool_access(a):
     return [txt(json.dumps({names.get(k, k): D.policy.is_approved(k) for k in keys}))]
 
 
+def tool_music(a):
+    from . import music
+
+    def launch(cmd):
+        # Cider is controlled over its API, so its window can live out of the way.
+        c = D.comp
+        rules = {"workspace": "special:music silent", "no_initial_focus": True} \
+            if c and c.name == "hyprland" else None
+        if c:
+            c.launch(cmd, rules)
+        else:
+            subprocess.Popen(cmd.split(), start_new_session=True)
+    try:
+        return [txt(music.run(a["action"], a.get("query"), a.get("kind") or "songs",
+                              a.get("percent"), a.get("seconds"), launch))]
+    except music.MusicError as e:
+        return [txt(f"music: {e}")]
+
+
 HANDLERS = {"computer": tool_computer, "open_application": tool_open_application,
-            "desktop": tool_desktop, "ui": tool_ui, "access": tool_access}
+            "desktop": tool_desktop, "ui": tool_ui, "access": tool_access,
+            "music": tool_music}
 
 
 def call_tool(name, a):
