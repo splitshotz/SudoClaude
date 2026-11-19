@@ -113,6 +113,7 @@ class Desktop:
         self.shot_space = None
         self.zoom_space = None
         self.default_monitor = None
+        self.view = {"mode": "screen"}
         self.grim = shutil.which("grim")
         self.tesseract = shutil.which("tesseract")
         self.wl_copy = shutil.which("wl-copy")
@@ -266,7 +267,41 @@ class Desktop:
         img.save(buf, "JPEG", quality=quality or JPEG_Q, optimize=False)
         return buf.getvalue()
 
-    def screenshot(self, monitor=None, cursor=True, max_edge=None, window=None, detail=None):
+    def view_rect(self, monitor=None):
+        v = self.view
+        if v["mode"] == "window" and self.comp:
+            try:
+                fid = self.comp.active_window()
+                w = next((w for w in self.comp.visible_windows() if w["id"] == fid), None)
+                if w:
+                    return (w["x"], w["y"], w["width"], w["height"]), "window", \
+                        f'{w["app"]}: {w["title"][:60]}'
+            except Exception:
+                pass
+        if v["mode"] == "region":
+            return v["rect"], "region", None
+        if (monitor or v.get("monitor")) == "all":
+            return self.conn.layout_box(), "screen", "all"
+        o = self.output(monitor or v.get("monitor"))
+        return (o.x, o.y, o.width, o.height), "screen", o.name
+
+    def set_view(self, mode, region=None, space=None, monitor=None):
+        self.wl()
+        if mode == "region":
+            if not region:
+                raise ValueError("region view needs region [x0, y0, x1, y1]")
+            x0, y0 = self.to_logical(region[0], region[1], space)
+            x1, y1 = self.to_logical(region[2], region[3], space)
+            self.view = {"mode": "region", "rect": (min(x0, x1), min(y0, y1),
+                                                    abs(x1 - x0), abs(y1 - y0))}
+        elif mode == "window":
+            self.view = {"mode": "window"}
+        else:
+            self.view = {"mode": "screen", "monitor": monitor}
+        return self.view
+
+    def screenshot(self, monitor=None, cursor=True, max_edge=None, window=None, detail=None,
+                   region=None, space=None):
         self.wl()
         if detail and not max_edge:
             max_edge = DETAIL_EDGE.get(detail, DETAIL_EDGE["normal"])
@@ -274,33 +309,60 @@ class Desktop:
             return self.window_shot(window, max_edge)
         if not HAVE_PIL:
             return self._screenshot_grim(monitor, cursor, max_edge)
-        outs = self.outputs()
-        if monitor == "all":
-            x, y, w, h = self.conn.layout_box()
-            sel = outs
-            name = "all"
-            pscale = max(o.scale for o in outs)
+        label = None
+        if region:
+            x0, y0 = self.to_logical(region[0], region[1], space)
+            x1, y1 = self.to_logical(region[2], region[3], space)
+            rect, mode = (min(x0, x1), min(y0, y1), abs(x1 - x0), abs(y1 - y0)), "region"
+        elif monitor:
+            rect, mode, label = self.view_rect(monitor) if self.view["mode"] == "screen" \
+                else (self._monitor_rect(monitor), "screen", monitor)
         else:
-            o = self.output(monitor)
-            x, y, w, h, sel, name, pscale = o.x, o.y, o.width, o.height, [o], o.name, o.scale
-        s = self.scale_for(w, h, pscale, int(max_edge) if max_edge else None)
-        iw, ih = max(1, round(w * s)), max(1, round(h * s))
+            rect, mode, label = self.view_rect()
+        lx, ly, lw, lh = self._clamp(rect)
+        outs = [o for o in self.outputs() if o.x < lx + lw and o.x + o.width > lx
+                and o.y < ly + lh and o.y + o.height > ly]
+        pscale = max(o.scale for o in outs)
+        if mode != "screen" and detail != "high":
+            pscale = min(pscale, 1.0)
+        s = self.scale_for(lw, lh, pscale, int(max_edge) if max_edge else None)
+        iw, ih = max(1, round(lw * s)), max(1, round(lh * s))
         with self._hidden_overlay():
-            raws = [(o, self._grab_output(o, cursor)) for o in sel]
-            plain = [(o, self._grab_output(o, False)) for o in sel] if cursor else raws
-        self._remember_thumb(plain, x, y, w, h)
-        if len(raws) == 1:
-            img = raws[0][1].resize((iw, ih), Image.BILINEAR if s < 0.6 else Image.LANCZOS)
-        else:
-            img = Image.new("RGB", (iw, ih))
-            for o, im in raws:
-                ox, oy = round((o.x - x) * s), round((o.y - y) * s)
-                img.paste(im.resize((max(1, round(o.width * s)), max(1, round(o.height * s))),
-                                    Image.BILINEAR), (ox, oy))
-        sp = Space("screenshot", x, y, w, h, iw, ih, name)
+            raws = [(o, self._grab_output(o, cursor)) for o in outs]
+            plain = [(o, self._grab_output(o, False)) for o in outs] if cursor else raws
+        self._remember_thumb(plain, lx, ly, lw, lh)
+        img = Image.new("RGB", (iw, ih))
+        for o, im in raws:
+            ix0, iy0 = max(lx, o.x), max(ly, o.y)
+            ix1, iy1 = min(lx + lw, o.x + o.width), min(ly + lh, o.y + o.height)
+            fx, fy = im.size[0] / o.width, im.size[1] / o.height
+            crop = im.crop((round((ix0 - o.x) * fx), round((iy0 - o.y) * fy),
+                            round((ix1 - o.x) * fx), round((iy1 - o.y) * fy)))
+            tw, th = max(1, round((ix1 - ix0) * s)), max(1, round((iy1 - iy0) * s))
+            if crop.size != (tw, th):
+                crop = crop.resize((tw, th), Image.BILINEAR if s < 0.6 else Image.LANCZOS)
+            img.paste(crop, (round((ix0 - lx) * s), round((iy0 - ly) * s)))
+        name = outs[0].name if len(outs) == 1 else "all"
+        sp = Space("screenshot", lx, ly, lw, lh, iw, ih, name)
+        sp.view, sp.label = mode, label
         masked = self._mask(img, sp)
         self.shot_space = sp
         return self._encode(img), sp, masked
+
+    def _monitor_rect(self, monitor):
+        if monitor == "all":
+            return self.conn.layout_box()
+        o = self.output(monitor)
+        return (o.x, o.y, o.width, o.height)
+
+    def _clamp(self, rect):
+        bx, by, bw, bh = self.conn.layout_box()
+        x, y, w, h = rect
+        x0, y0 = max(bx, round(x)), max(by, round(y))
+        x1, y1 = min(bx + bw, round(x + w)), min(by + bh, round(y + h))
+        if x1 - x0 < 4 or y1 - y0 < 4:
+            raise ValueError("that area is off screen or too small")
+        return x0, y0, x1 - x0, y1 - y0
 
     def _screenshot_grim(self, monitor, cursor, max_edge):
         o = self.output(None if monitor == "all" else monitor)
@@ -1015,7 +1077,8 @@ COMPUTER_ACTIONS = [
     "screenshot", "zoom", "left_click", "right_click", "middle_click", "double_click",
     "triple_click", "mouse_move", "mouse_move_relative", "left_mouse_down",
     "left_mouse_up", "mouse_down", "mouse_up", "left_click_drag", "path", "scroll",
-    "type", "key", "key_down", "key_up", "hold_key", "wait", "cursor_position", "diff"]
+    "type", "key", "key_down", "key_up", "hold_key", "wait", "cursor_position", "diff",
+    "set_view"]
 
 ACTION_PROPS = {
     "action": {"type": "string", "enum": COMPUTER_ACTIONS},
@@ -1037,7 +1100,11 @@ ACTION_PROPS = {
     "release": {"type": "boolean", "description": "path: release the button at the end "
                                                  "(default true)."},
     "region": {"type": "array", "items": {"type": "number"}, "minItems": 4, "maxItems": 4,
-               "description": "zoom: [x0, y0, x1, y1]."},
+               "description": "[x0, y0, x1, y1]. screenshot: capture only this area. zoom: "
+                              "area to magnify. set_view: the area to keep watching."},
+    "view": {"type": "string", "enum": ["screen", "window", "region"],
+             "description": "set_view: what screenshots cover from now on. window = the "
+                            "focused window (follows focus)."},
     "space": {"type": "string", "enum": ["screenshot", "zoom", "logical"]},
     "monitor": {"type": "string"},
     "window": WIN,
@@ -1051,7 +1118,9 @@ TOOLS = [
      "description": "See and drive the desktop like a person: screenshot, zoom, every "
                     "click type, click-and-hold, mouse down/up on any button, drags, "
                     "multi-point paths, relative mouse motion (games), scroll, type, key "
-                    "combos, holding keys across steps (key_down ... key_up), waits. Give "
+                    "combos, holding keys across steps (key_down ... key_up), waits. "
+                    "Screenshots can cover just a region, and set_view switches what "
+                    "every later screenshot covers (screen, focused window, region). Give "
                     "one action, or plan a whole sequence in `actions` (each item takes "
                     "the same fields) to run it in one call. `after` picks what comes "
                     "back.",
@@ -1117,6 +1186,9 @@ the server itself asks the user before sensitive apps.
 Be efficient. Screenshots are the expensive part, so:
 - Plan known steps together and send them as one `computer` call with `actions`, then
   check once. Don't screenshot between steps you can predict.
+- Look only at what you need. Use screenshot with region, or set_view to 'window' or a
+  region while working inside one app or dialog, so verification shots only cover that.
+  Switch back to view='screen' whenever you need the bigger picture.
 - Verify with after='diff' (text) or after='low' when that's enough; use 'normal'/'high'
   or zoom only when you need to read detail.
 - Prefer text sources when they answer the question: ui tree, desktop state/windows,
@@ -1137,7 +1209,13 @@ def txt(s):
 
 
 def shot_meta(sp, masked=None):
-    meta = {"monitor": sp.output, "image": [sp.img_w, sp.img_h]}
+    meta = {"view": getattr(sp, "view", "screen"), "image": [sp.img_w, sp.img_h]}
+    if meta["view"] == "screen":
+        meta["monitor"] = sp.output
+    else:
+        meta["area"] = [round(sp.x), round(sp.y), round(sp.w), round(sp.h)]
+        if getattr(sp, "label", None):
+            meta["window"] = sp.label
     pos = D.cursor()
     if pos and sp.contains_logical(*pos):
         meta["cursor"] = list(sp.from_logical(*pos))
@@ -1154,7 +1232,7 @@ def shot_meta(sp, masked=None):
     return meta
 
 
-def screenshot_blocks(monitor=None, detail="normal", window=None):
+def screenshot_blocks(monitor=None, detail="normal", window=None, region=None, space=None):
     if window:
         data, sp, info = D.screenshot(window=window, detail=detail)
         w = info["window"]
@@ -1164,7 +1242,7 @@ def screenshot_blocks(monitor=None, detail="normal", window=None):
             meta["note"] = ("not visible: focus it before clicking, or use ui act / "
                             "key with window in the background")
         return [img_block(data), txt(meta)]
-    data, sp, masked = D.screenshot(monitor, detail=detail)
+    data, sp, masked = D.screenshot(monitor, detail=detail, region=region, space=space)
     if D.policy.active:
         D.overlay.send(status="Looking", action="")
     return [img_block(data), txt(shot_meta(sp, masked))]
@@ -1203,7 +1281,13 @@ def computer_action(a):
     dur_ms = int(float(a.get("duration", 0)) * 1000)
     if act == "screenshot":
         return None, screenshot_blocks(a.get("monitor"), a.get("detail") or "normal",
-                                       a.get("window"))
+                                       a.get("window"), a.get("region"), sp)
+    if act == "set_view":
+        v = D.set_view(a.get("view", "screen"), a.get("region"), sp, a.get("monitor"))
+        shown = dict(v)
+        if "rect" in shown:
+            shown["rect"] = [round(n) for n in shown["rect"]]
+        return json.dumps({"view": shown}), []
     if act == "zoom":
         x0, y0, x1, y1 = a["region"]
         data, zs = D.zoom(x0, y0, x1 - x0, y1 - y0, sp)
@@ -1332,6 +1416,7 @@ def tool_desktop(a):
     if act == "switch_display":
         o = D.output(a["monitor"])
         D.default_monitor = o.name
+        D.view = {"mode": "screen"}
         D.shot_space = None
         return [txt(f"default display is now {o.name}")] + after_blocks(a.get("after", "low"))
     if act == "clipboard_get":
