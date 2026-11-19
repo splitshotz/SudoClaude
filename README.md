@@ -4,6 +4,14 @@ Computer use for Linux. It lets Claude see the screen, move its own cursor, type
 
 It runs as a local MCP server, so the Claude desktop app and Claude Code can both use it.
 
+![The overlay going through listening, working on screen, working on another workspace, and the corner pill used during games](docs/overlay.gif)
+
+<sub>The overlay's own QML rendered frame by frame over my desktop: listening, working on screen, working on the workspace to the right, then the corner pill it switches to when you're in a game.</sub>
+
+| Listening | While you're gaming | Claude's cursor |
+|---|---|---|
+| ![Listening](docs/listening.jpg) | ![Corner pill](docs/corner.jpg) | ![Cursor](docs/cursor.jpg) |
+
 ## Install
 
 ```sh
