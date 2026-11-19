@@ -5,7 +5,8 @@ layout(std140, binding = 0) uniform buf {
     mat4 qt_Matrix;
     float qt_Opacity;
     vec2 size;
-    float pad;
+    vec2 origin;
+    vec2 screen;
     float radius;
     float band;
     float strength;
@@ -24,7 +25,7 @@ float box(vec2 p, vec2 b, float r) {
 }
 
 vec3 tap(vec2 p) {
-    return texture(backdropTex, (p + size * 0.5 + pad) / (size + 2.0 * pad)).rgb;
+    return texture(backdropTex, (origin + size * 0.5 + p) / screen).rgb;
 }
 
 void main() {
