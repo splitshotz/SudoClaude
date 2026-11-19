@@ -16,23 +16,35 @@ ShellRoot {
     property string detail: "Esc"
     property string action: ""
     property string focusScreen: ""
+    property string mode: "full"
+    property string side: "right"
+    property real winX: 0
+    property real winY: 0
+    property real winW: 0
+    property real winH: 0
+    property string voice: ""
+    property string transcript: ""
+    property real level: 0
     property int rippleSeq: 0
     property real rippleX: 0
     property real rippleY: 0
-    property var sock: null
+    property var sockets: []
+
+    readonly property bool present: active || voice !== ""
 
     function send(obj) {
-        if (shell.sock) { shell.sock.write(JSON.stringify(obj) + "\n"); shell.sock.flush() }
+        const line = JSON.stringify(obj) + "\n"
+        for (const s of shell.sockets) {
+            try { s.write(line); s.flush() } catch (e) {}
+        }
     }
 
     function handle(m) {
-        if (m.active !== undefined) shell.active = m.active
-        if (m.capturing !== undefined) shell.capturing = m.capturing
-        if (m.stopped !== undefined) shell.stopped = m.stopped
-        if (m.idle !== undefined) shell.idle = m.idle
-        if (m.status !== undefined) shell.status = m.status
-        if (m.detail !== undefined) shell.detail = m.detail
-        if (m.action !== undefined) shell.action = m.action
+        for (const k of ["active", "capturing", "stopped", "idle", "status", "detail", "action",
+                         "mode", "side", "winX", "winY", "winW", "winH", "voice", "transcript",
+                         "level"]) {
+            if (m[k] !== undefined) shell[k] = m[k]
+        }
         if (m.screen !== undefined) shell.focusScreen = m.screen
         if (m.x !== undefined && m.y !== undefined) { shell.cx = m.x; shell.cy = m.y }
         if (m.click) { shell.rippleX = shell.cx; shell.rippleY = shell.cy; shell.rippleSeq++ }
@@ -44,7 +56,10 @@ ShellRoot {
         path: Quickshell.env("SUDOCLAUDE_SOCK")
         handler: Socket {
             id: conn
-            Component.onCompleted: shell.sock = conn
+            onConnectedChanged: {
+                if (connected) shell.sockets = shell.sockets.concat([conn])
+                else shell.sockets = shell.sockets.filter(s => s !== conn)
+            }
             parser: SplitParser {
                 onRead: data => {
                     try { shell.handle(JSON.parse(data)) } catch (e) { console.warn("bad msg", e) }
@@ -60,7 +75,8 @@ ShellRoot {
             id: win
             required property var modelData
             screen: modelData
-            visible: shell.active || content.fade > 0.002
+            readonly property bool here: shell.focusScreen === "" || shell.focusScreen === modelData.name
+            visible: here && shell.mode !== "corner" && (shell.present || content.fade > 0.002)
             anchors { top: true; bottom: true; left: true; right: true }
             exclusionMode: ExclusionMode.Ignore
             color: "transparent"
@@ -72,6 +88,7 @@ ShellRoot {
             OverlayContent {
                 id: content
                 anchors.fill: parent
+                showPill: false
                 originX: win.modelData.x
                 originY: win.modelData.y
                 active: shell.active
@@ -81,11 +98,18 @@ ShellRoot {
                 status: shell.status
                 detail: shell.detail
                 action: shell.action
+                mode: shell.mode
+                side: shell.side
+                winX: shell.winX
+                winY: shell.winY
+                winW: shell.winW
+                winH: shell.winH
+                voice: shell.voice
+                transcript: shell.transcript
+                level: shell.level
                 cursorX: shell.cx
                 cursorY: shell.cy
-                focused: shell.focusScreen === "" || shell.focusScreen === win.modelData.name
-
-                showPill: false
+                focused: win.here
 
                 Connections {
                     target: shell
@@ -95,7 +119,6 @@ ShellRoot {
         }
     }
 
-    // own layer so Hyprland can blur just the pill
     Variants {
         model: Quickshell.screens
 
@@ -104,7 +127,7 @@ ShellRoot {
             required property var modelData
             screen: modelData
             readonly property bool here: shell.focusScreen === "" || shell.focusScreen === modelData.name
-            visible: here && (shell.active || pillWrap.opacity > 0.01)
+            visible: here && shell.mode !== "corner" && (shell.present || pillWrap.opacity > 0.01)
             anchors { bottom: true }
             margins { bottom: 26 }
             implicitWidth: pill.width + 40
@@ -119,11 +142,11 @@ ShellRoot {
             Item {
                 id: pillWrap
                 anchors.fill: parent
+                property real fade: shell.present && shell.mode !== "corner" ? 1 : 0
+                Behavior on fade { NumberAnimation { duration: shell.present ? 450 : 700; easing.type: Easing.OutCubic } }
                 opacity: shell.capturing ? 0 : fade
-                property real fade: shell.active ? 1 : 0
-                Behavior on fade { NumberAnimation { duration: shell.active ? 450 : 700; easing.type: Easing.OutCubic } }
                 transform: Translate {
-                    y: shell.active ? 0 : 14
+                    y: shell.present ? 0 : 14
                     Behavior on y { NumberAnimation { duration: 520; easing.type: Easing.OutCubic } }
                 }
                 Pill {
@@ -131,11 +154,50 @@ ShellRoot {
                     anchors.centerIn: parent
                     status: shell.status
                     detail: shell.detail
+                    subtitle: shell.transcript
+                    voice: shell.voice
+                    level: shell.level
                     stopped: shell.stopped
                     idle: shell.idle
-                    running: shell.active
+                    running: shell.present
                     onStopRequested: shell.send({ event: "stop" })
                 }
+            }
+        }
+    }
+
+    Variants {
+        model: Quickshell.screens
+
+        PanelWindow {
+            id: cornerWin
+            required property var modelData
+            screen: modelData
+            readonly property bool here: shell.focusScreen === "" || shell.focusScreen === modelData.name
+            visible: here && shell.mode === "corner" && (shell.present || badge.opacity > 0.01)
+            anchors { top: true; right: true }
+            implicitWidth: badge.implicitWidth
+            implicitHeight: badge.implicitHeight
+            exclusionMode: ExclusionMode.Ignore
+            color: "transparent"
+            WlrLayershell.layer: WlrLayer.Overlay
+            WlrLayershell.namespace: "claude-cu-corner"
+            WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+            mask: Region { item: badge.pillItem }
+
+            CornerBadge {
+                id: badge
+                anchors.fill: parent
+                shown: shell.present && shell.mode === "corner"
+                capturing: shell.capturing
+                status: shell.status
+                detail: shell.detail
+                transcript: shell.transcript
+                voice: shell.voice
+                level: shell.level
+                stopped: shell.stopped
+                idle: shell.idle
+                onStopRequested: shell.send({ event: "stop" })
             }
         }
     }

@@ -2,100 +2,107 @@ import QtQuick
 import QtQuick.Effects
 import QtQuick.Shapes
 
-// One monitor's worth of the "Claude is using your computer" overlay.
-// Pure QtQuick so it can be previewed outside Quickshell.
 Item {
     id: root
 
-    // ---- inputs ---------------------------------------------------------
-    property real originX: 0          // monitor position in global layout
+    property real originX: 0
     property real originY: 0
     property bool active: false
-    property bool focused: true       // Claude is acting on this monitor
-    property bool capturing: false    // hide instantly for screenshots
+    property bool focused: true
+    property bool capturing: false
     property bool stopped: false
-    property bool idle: false         // no recent action ("thinking")
-    property real cursorX: -10000     // global logical coordinates
+    property bool idle: false
+    property real cursorX: -10000
     property real cursorY: -10000
     property string status: "Working"
     property string detail: "Esc"
-    property string action: ""        // short verb shown on the cursor tag
+    property string action: ""
+    property string mode: "full"
+    property string side: "right"
+    property real winX: 0
+    property real winY: 0
+    property real winW: 0
+    property real winH: 0
+    property string voice: ""
+    property string transcript: ""
+    property real level: 0
+    property bool showPill: true
+    property Item backdrop: null
     signal stopRequested()
 
-    // ---- palette ---------------------------------------------------------
     readonly property color accent: "#D97757"
     readonly property color accentHi: "#EBA286"
-    readonly property color ink: "#F6EEE9"
-    readonly property color muted: Qt.rgba(0.965, 0.933, 0.914, 0.56)
     readonly property string fontFamily: "Inter"
 
     readonly property real lx: cursorX - originX
     readonly property real ly: cursorY - originY
     readonly property bool cursorHere: lx > -60 && ly > -60 && lx < width + 60 && ly < height + 60
+    readonly property bool listening: voice === "listening"
+    readonly property bool shown: (active || voice !== "") && mode !== "corner"
 
-    // fade is animated; capturing hides instantly (and restores instantly)
-    property real fade: active ? 1 : 0
-    Behavior on fade { NumberAnimation { duration: root.active ? 450 : 700; easing.type: Easing.OutCubic } }
+    property real fade: shown ? 1 : 0
+    Behavior on fade { NumberAnimation { duration: root.shown ? 500 : 800; easing.type: Easing.OutCubic } }
     opacity: capturing ? 0 : fade
 
-    // ---- edge glow ---------------------------------------------------------
-    property real breathe: 0.7
+    property real breathe: 1
     SequentialAnimation on breathe {
         running: root.fade > 0 && !root.capturing
         loops: Animation.Infinite
-        NumberAnimation { to: 1.0;  duration: 1900; easing.type: Easing.InOutSine }
-        NumberAnimation { to: 0.55; duration: 1900; easing.type: Easing.InOutSine }
+        NumberAnimation { to: 1.12; duration: 2600; easing.type: Easing.InOutSine }
+        NumberAnimation { to: 0.88; duration: 2600; easing.type: Easing.InOutSine }
     }
 
-    Item {
-        id: glow
+    property real smoothLevel: 0
+    Behavior on smoothLevel { NumberAnimation { duration: 120 } }
+    onLevelChanged: smoothLevel = level
+
+    readonly property bool edgeMode: active && (mode === "full" || mode === "side")
+    readonly property real edgeTarget: !root.focused ? 0
+        : listening && !edgeMode ? 0.55 + 0.9 * smoothLevel
+        : mode === "full" ? (idle ? 0.55 : 0.8)
+        : mode === "side" ? 0.5
+        : 0
+
+    MistLayer {
+        id: edgeMist
         anchors.fill: parent
-        opacity: root.focused ? (root.idle ? 0.55 : 1) : 0
-        Behavior on opacity { NumberAnimation { duration: 600; easing.type: Easing.InOutSine } }
-
-        Rectangle {
-            id: glowSource
-            anchors.fill: parent
-            color: "transparent"
-            border.width: 14
-            border.color: root.stopped ? "#8C817C" : root.accent
-            visible: false
-            layer.enabled: true
-        }
-        MultiEffect {
-            anchors.fill: parent
-            source: glowSource
-            blurEnabled: true
-            blur: 1.0
-            blurMax: 64
-            opacity: 0.85 * root.breathe
-        }
-        Rectangle {
-            id: coreSource
-            anchors.fill: parent
-            color: "transparent"
-            border.width: 4
-            border.color: root.stopped ? "#A39893" : root.accentHi
-            visible: false
-            layer.enabled: true
-        }
-        MultiEffect {
-            anchors.fill: parent
-            source: coreSource
-            blurEnabled: true
-            blur: 1.0
-            blurMax: 14
-            opacity: 0.9 * root.breathe
-        }
-        Rectangle {
-            anchors.fill: parent
-            color: "transparent"
-            border.width: 2
-            border.color: Qt.rgba(0.96, 0.7, 0.58, 0.7 * root.breathe)
-        }
+        seed: 3.7
+        level: root.smoothLevel
+        intensity: root.edgeTarget * root.breathe
+        Behavior on intensity { NumberAnimation { duration: 700; easing.type: Easing.InOutSine } }
+        el: (root.mode === "full" || (root.mode === "side" && root.side === "left")) && root.edgeMode ? 1 : 0
+        er: (root.mode === "full" || (root.mode === "side" && root.side === "right")) && root.edgeMode ? 1 : 0
+        et: root.mode === "full" && root.edgeMode ? 0.85 : 0
+        eb: root.mode === "full" && root.edgeMode ? 1 : (root.listening && !root.edgeMode ? 1.15 : 0)
+        Behavior on el { NumberAnimation { duration: 900; easing.type: Easing.InOutCubic } }
+        Behavior on er { NumberAnimation { duration: 900; easing.type: Easing.InOutCubic } }
+        Behavior on et { NumberAnimation { duration: 900; easing.type: Easing.InOutCubic } }
+        Behavior on eb { NumberAnimation { duration: 900; easing.type: Easing.InOutCubic } }
+        spread: root.mode === "side" ? 80 : root.listening && !root.edgeMode ? 130 : 105
+        Behavior on spread { NumberAnimation { duration: 900; easing.type: Easing.InOutCubic } }
     }
 
-    // ---- click ripple --------------------------------------------------------
+    MistLayer {
+        id: haloMist
+        anchors.fill: parent
+        halo: true
+        seed: 11.2
+        radius: 14
+        spread: 34
+        level: root.smoothLevel
+        rx: root.winX - root.originX
+        ry: root.winY - root.originY
+        rw: Math.max(1, root.winW)
+        rh: Math.max(1, root.winH)
+        Behavior on rx { NumberAnimation { duration: 650; easing.type: Easing.InOutCubic } }
+        Behavior on ry { NumberAnimation { duration: 650; easing.type: Easing.InOutCubic } }
+        Behavior on rw { NumberAnimation { duration: 650; easing.type: Easing.InOutCubic } }
+        Behavior on rh { NumberAnimation { duration: 650; easing.type: Easing.InOutCubic } }
+        intensity: root.focused && root.active && root.mode === "window" && root.winW > 0
+                   ? (root.idle ? 0.6 : 0.95) * root.breathe : 0
+        Behavior on intensity { NumberAnimation { duration: 700; easing.type: Easing.InOutSine } }
+    }
+
     Component {
         id: rippleComp
         Item {
@@ -134,10 +141,9 @@ Item {
 
     Item { id: rippleLayer; anchors.fill: parent }
 
-    // ---- Claude's cursor ---------------------------------------------------------
     Item {
         id: cursor
-        visible: root.cursorHere
+        visible: root.cursorHere && root.active && (root.mode === "full" || root.mode === "window")
         x: root.lx
         y: root.ly
         Behavior on x { NumberAnimation { duration: 300; easing.type: Easing.OutQuint } }
@@ -231,18 +237,19 @@ Item {
         }
     }
 
-    // embedded only for previews; under Quickshell the pill gets its own layer
-    property bool showPill: true
-    property Item backdrop: null
+
     Pill {
         id: pillItem
-        visible: root.showPill && root.focused
+        visible: root.showPill && root.focused && root.mode !== "corner"
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
-        anchors.bottomMargin: 26 + (root.active ? 0 : -14)
+        anchors.bottomMargin: 26 + (root.shown ? 0 : -14)
         Behavior on anchors.bottomMargin { NumberAnimation { duration: 520; easing.type: Easing.OutCubic } }
         status: root.status
         detail: root.detail
+        subtitle: root.transcript
+        voice: root.voice
+        level: root.smoothLevel
         stopped: root.stopped
         idle: root.idle
         running: root.fade > 0

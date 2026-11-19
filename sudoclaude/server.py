@@ -173,16 +173,60 @@ class Desktop:
             except Exception:
                 pass
 
-    def begin(self, status, action="", lx=None, ly=None, click=False):
+    def begin(self, status, action="", lx=None, ly=None, click=False, win=None):
         self.policy.touch()
         self._idle_flag = False
         msg = {"status": status, "action": action, "idle": False}
+        msg.update(self.context(lx, ly, win))
         if lx is not None:
-            msg.update(x=lx, y=ly, screen=self._output_at(lx, ly))
+            msg.update(x=lx, y=ly)
+            msg.setdefault("screen", self._output_at(lx, ly))
             if click:
                 msg["click"] = True
         if self.policy.cfg.get("overlay", True):
             self.overlay.send(**msg)
+
+    def flow_mode(self, active=None):
+        if not self.comp or self.comp.name != "hyprland":
+            return False
+        try:
+            a = active if active is not None else (self.comp.j("activewindow") or {})
+        except Exception:
+            return False
+        return bool(a.get("fullscreen")) or a.get("contentType") in ("game", "video") \
+            or bool(a.get("tearingHint"))
+
+    def context(self, lx=None, ly=None, win=None):
+        c = self.comp
+        if not c or c.name != "hyprland":
+            return {"mode": "full"}
+        try:
+            active = c.j("activewindow") or {}
+            mons = c.j("monitors")
+        except Exception:
+            return {"mode": "full"}
+        mon_name = {m.get("id"): m["name"] for m in mons}
+        if self.flow_mode(active):
+            return {"mode": "corner", "screen": mon_name.get(active.get("monitor"), "")}
+        if win is None and lx is not None:
+            win = c.window_at(lx, ly)
+        if win is None or win.get("id") == active.get("address"):
+            return {"mode": "full"}
+        visible = {}
+        for m in mons:
+            visible[(m.get("activeWorkspace") or {}).get("id")] = m
+            sp = (m.get("specialWorkspace") or {}).get("id")
+            if sp:
+                visible[sp] = m
+        if win.get("workspace_id") in visible or win.get("pinned"):
+            return {"mode": "window", "winX": win["x"], "winY": win["y"],
+                    "winW": win["width"], "winH": win["height"],
+                    "screen": mon_name.get(win.get("monitor"), "")}
+        cur = (active.get("workspace") or {}).get("id") or 0
+        wid = win.get("workspace_id") or 0
+        side = "left" if 0 < wid < cur else "right"
+        return {"mode": "side", "side": side,
+                "screen": mon_name.get(active.get("monitor"), "")}
 
     def _output_at(self, lx, ly):
         for o in self.outputs():
@@ -828,7 +872,7 @@ class Desktop:
             raise RuntimeError("background keys need Hyprland")
         w = self.find_window(**window) if isinstance(window, dict) else self.find_window(id=window)
         self.policy.require(w["app"], "type", w["title"])
-        self.begin("Pressing keys", f"→ {w['app']}")
+        self.begin("Pressing keys", f"→ {w['app']}", win=w)
         for _ in range(int(repeat)):
             for mods, code, raw in parsed:
                 mod_s = " ".join(dict.fromkeys(MOD_HYPR[m] for m in mods))
@@ -1043,12 +1087,12 @@ class Desktop:
             "view" if action == "get_text" else "click")
         self.policy.require(w["app"], kind, w["title"])
         node, box = self.tree.get(ref)
+        verb = {"set_text": "Typing", "get_text": "Reading"}.get(action, "Clicking")
         if box:
-            self.begin({"set_text": "Typing", "get_text": "Reading"}.get(action, "Clicking"),
-                       action.replace("_", " ").capitalize(),
-                       box[0] + box[2] / 2, box[1] + box[3] / 2, click=action == "click")
+            self.begin(verb, action.replace("_", " ").capitalize(), box[0] + box[2] / 2,
+                       box[1] + box[3] / 2, click=action == "click", win=w)
         else:
-            self.begin("Working", action)
+            self.begin(verb, action, win=w)
         res = self.tree.act(ref, action, text, value)
         if not res.get("ok") and res.get("fallback") and action in ("click", "press",
                                                                      "set_text", "focus"):
@@ -1151,7 +1195,7 @@ TOOLS = [
          "action": {"type": "string", "enum": [
              "state", "windows", "focus_window", "workspace", "keybinds", "monitors",
              "switch_display", "launch", "hypr_dispatch", "hypr_query", "clipboard_get",
-             "clipboard_set", "list_apps", "doctor", "reload"]},
+             "clipboard_set", "list_apps", "doctor", "reload", "overlay", "overlay_debug"]},
          "target": {"type": "string"}, "op": {"type": "string"},
          "id": {"type": "string"}, "app": {"type": "string"}, "title": {"type": "string"},
          "query": {"type": "string"}, "command": {"type": "string"},
@@ -1400,6 +1444,15 @@ def tool_desktop(a):
     act = a["action"]
     if act == "doctor":
         return [txt(json.dumps(doctor(), indent=1))]
+    if act == "overlay":
+        payload = json.loads(a.get("text") or "{}")
+        D.overlay.send(**payload)
+        return [txt("sent")]
+    if act == "overlay_debug":
+        on = (a.get("text") or "on").lower() in ("on", "true", "1")
+        if D.comp:
+            D.comp.overlay_rules(in_captures=on)
+        return [txt(f"overlay {'shows' if on else 'hidden'} in screenshots")]
     if act == "reload":
         D.policy.cleanup()
         D.overlay.stop()

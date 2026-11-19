@@ -285,12 +285,17 @@ class Hyprland:
         raise RuntimeError("Hyprland 0.54+ uses Lua dispatchers, e.g. "
                            "'hl.dsp.window.fullscreen()' or 'hl.dsp.focus({workspace = \"3\"})'")
 
-    def overlay_rules(self):
+    def overlay_rules(self, in_captures=False):
         rules = [{"name": "sudoclaude-overlay", "match": {"namespace": "^claude-computer-use$"},
                   "no_screen_share": True, "no_anim": True},
                  {"name": "sudoclaude-glass", "match": {"namespace": "^claude-cu-glass$"},
                   "no_screen_share": True, "no_anim": True, "blur": True,
-                  "ignore_alpha": 0.05}]
+                  "ignore_alpha": 0.05},
+                 {"name": "sudoclaude-corner", "match": {"namespace": "^claude-cu-corner$"},
+                  "no_screen_share": True, "no_anim": True}]
+        if in_captures:
+            for r in rules:
+                r["no_screen_share"] = False
         if self.lua:
             for r in rules:
                 try:
@@ -490,7 +495,7 @@ class Sway:
     def run(self, command):
         return self.dispatch(command)
 
-    def overlay_rules(self):
+    def overlay_rules(self, in_captures=False):
         return False
 
     def esc_listen(self, path):
