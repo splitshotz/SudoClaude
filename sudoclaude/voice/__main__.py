@@ -39,7 +39,8 @@ def setup():
         if os.path.exists(path):
             continue
         if os.path.exists(relay):
-            os.symlink(relay, path)
+            import shutil
+            shutil.copy(relay, path)
             continue
         print("downloading", name)
         import urllib.request

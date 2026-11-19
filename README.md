@@ -1,6 +1,6 @@
 # SudoClaude
 
-Computer use for Linux. It lets Claude see the screen, move its own cursor, type, open apps and actually work inside them, like the computer use Claude already has on macOS and Windows. Right now it's built around my own setup (Garuda with Hyprland and the end-4 dots), so I haven't tried it on anything else yet.
+Computer use for Linux. It lets Claude see the screen, move its own cursor, type, open apps and actually work inside them, like the computer use Claude already has on macOS and Windows. I built it on my own setup (Garuda with Hyprland and the end-4 dots), so that's where it's tested. Other Arch-based distros running Hyprland should be fine, and it picks up your own rounding, colors and keybinds instead of mine.
 
 It runs as a local MCP server, so the Claude desktop app and Claude Code can both use it.
 
@@ -14,13 +14,17 @@ It runs as a local MCP server, so the Claude desktop app and Claude Code can bot
 
 ## Install
 
+You need an Arch-based distro, Hyprland, and Claude Code (or the Claude desktop app). Quickshell is needed for the overlay; the end-4 dots already come with it.
+
 ```sh
 git clone https://github.com/splitshotz/SudoClaude ~/Projects/SudoClaude
 cd ~/Projects/SudoClaude
 ./install.sh
 ```
 
-The script installs what's missing with pacman, adds the server to `~/.config/Claude/claude_desktop_config.json` (it backs that file up first), registers it with Claude Code if you have it, and runs a quick self-test. Quit Claude from the tray icon and open it again so it loads.
+The script installs what's missing with pacman, registers the server with Claude Code (`claude mcp add`) and the desktop app (it backs up that config first), and runs a quick self-test. It then asks whether you want the Chromium extension and the voice assistant. If you use the desktop app, quit it from the tray and open it again so it loads the server. In Claude Code it's there in your next session; try asking it to open an app and do something in it.
+
+Nothing in your Hyprland config changes except one thing: if you set up voice, it adds two binds to your user keybinds file (end-4's `custom/keybinds.lua` or `.conf`), Super+Space to talk and Super+Shift+Escape to stop. It checks they're free first and backs the file up. If they're taken, pick your own with `bin/sudoclaude-keybind SUPER+ALT+C SUPER+ALT+X`.
 
 ## What it can do
 
@@ -30,11 +34,11 @@ There are seven tools:
 
 - `computer` covers the screen, mouse and keyboard. It uses the same action names as Claude's own computer use, and it takes a whole list of actions at once, so Claude can plan a sequence of moves and run it in one go instead of checking after every step.
 - `open_application` opens anything with a .desktop entry by name, or focuses it if it's already running, and waits for the window.
-- `desktop` handles Hyprland: workspaces (special ones too), windows, monitors, launching commands, the clipboard, and my keybinds with the same labels the Super+/ cheatsheet shows. Those come from the live config, so if I change a bind it picks that up.
+- `desktop` handles Hyprland: workspaces (special ones too), windows, monitors, launching commands, the clipboard, and your keybinds with the same labels the Super+/ cheatsheet shows. Those come from the live config, so if you change a bind it picks that up.
 - `ui` reads an app's real interface through AT-SPI (buttons, fields, menus, tabs with their labels and positions) and can press, fill in or toggle things without touching the mouse. Its `see` action is how Claude usually looks at an app: one capture of that window, even if it's behind something or on another workspace, with every control boxed and numbered, like the macOS and Windows versions of computer use. When an app draws its own UI and exposes nothing, the numbers come from OCR'd text instead. GTK, Qt, Firefox-based browsers like Zen, and Electron apps all work this way, so it isn't tied to one browser.
 - `browser` uses Chromium tabs directly through the extension (see Browser below).
 - `music` controls Apple Music in Cider without touching its window.
-- `access` is for the few sensitive apps that need a yes from me first.
+- `access` is for the few sensitive apps that need a yes from you first.
 
 Screenshots can also grab a single window, even one on another workspace or under other windows, and shortcuts can go to a window in the background.
 
@@ -72,7 +76,7 @@ If you're in a fullscreen game or watching a video, it leaves your workspace alo
 
 ## The overlay
 
-While Claude is working, a thin orange line runs along the edge of the screen with a short bright streak slowly travelling around it. Claude also gets a small cursor of its own with a "Claude" tag, and a glass pill at the bottom says what it's doing. Where it shows depends on what Claude is doing:
+While Claude is working, a thin orange line runs along the edge of the screen with a short bright streak slowly travelling around it. Claude also gets a small cursor of its own with a "Claude" tag, and a glass pill says what it's doing. Where the line shows depends on what Claude is doing:
 
 - working on your screen: the line goes around the whole screen
 - working in a window next to yours: it traces just that window
@@ -81,7 +85,9 @@ While Claude is working, a thin orange line runs along the edge of the screen wi
 
 There are a few other looks if the line isn't your thing. Set `"overlay_style"` in the config to `hairline` (the default), `brackets` (viewfinder corners), `spotlight` (a warm glow under the pill, nothing on the edges), `minimal` (just the pill and cursor) or `glow` (a soft glow on the edges). Previews are in [docs/options](docs/options).
 
-It runs on Quickshell as its own layer. Your mouse goes straight through it, and a layer rule keeps it out of screen captures, so Claude never sees it in its own screenshots and it never shows up in your recordings or streams. The pill gets Hyprland's blur from a rule the server adds at runtime, so nothing in your config changes.
+The pill sits at the bottom by default. Drag it anywhere, or just flick it toward an edge or corner and it carries on to the nearest of eight spots (the four edges and four corners) and stays there next time. It's glass: Hyprland blurs whatever is behind it, and the rim bends the content just past its edge like a lens, with a glint that slides round while you move it. The colors come from your end-4 Material You palette when you have one.
+
+It runs on Quickshell as its own layer and your mouse goes straight through everything except the pill. It shows up in your own screenshots and recordings like any other part of the screen; Claude's screenshots hide it for a frame so it doesn't get in Claude's way. The blur comes from layer rules the server adds at runtime, so nothing in your config changes.
 
 ## Voice
 
@@ -96,6 +102,8 @@ That makes a Python 3.11 environment, downloads the models, adds an echo cancell
 How it behaves:
 
 - "Claude, open Discord" works in one breath, or say "Claude", wait for the chime, then talk.
+- Super+Space does the same without the wake word. Press it again to end your turn, or while Claude is talking to cut in.
+- While it's listening, double tap Space and the pill turns into a text box so you can type instead. Enter sends, Escape cancels. This is off when a fullscreen app or game has focus.
 - After it answers, the mic stays open for a few seconds so you can follow up without saying its name again. If what it hears clearly isn't meant for it, it ignores it.
 - Saying "Claude" while it's talking or working interrupts it. Talking over it softens its voice first and only cuts it off if you're actually saying something.
 - Music and videos get turned down while you're talking to it and come back up after.
@@ -104,12 +112,13 @@ How it behaves:
 
 Everything you say is transcribed locally with Parakeet. The voice is Chatterbox Turbo on the GPU, and it switches to Kokoro on the CPU while a game has focus so your frame rate doesn't drop.
 
-To make the wake word better at your voice, record a few samples and retrain:
+The wake word starts out trained only on synthetic voices. It gets noticeably better if you record yourself and retrain (about 4 minutes). Stop the service first or it'll answer you every time:
 
 ```sh
-bin/sudoclaude-voice record     # say "Claude" 12 times
+systemctl --user stop sudoclaude-voice
+bin/sudoclaude-voice record     # press Enter, say "Claude", 12 times
 bin/sudoclaude-voice train
-systemctl --user restart sudoclaude-voice
+systemctl --user start sudoclaude-voice
 ```
 
 `bin/sudoclaude-voice samples` renders the same line in every available voice so you can pick one by ear, and `bin/sudoclaude-voice say "hello"` tests the current one. Logs are in `journalctl --user -u sudoclaude-voice`.

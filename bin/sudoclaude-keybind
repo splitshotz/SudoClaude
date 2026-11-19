@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# Adds "talk to Claude" and "stop Claude" binds to Hyprland's user config.
+# Works with Lua (hyprland.lua) and classic (hyprland.conf) configs, prefers
+# end-4's custom keybind file, and never touches a combo that's already taken.
+#   sudoclaude-keybind [TALK_COMBO] [STOP_COMBO]   default: SUPER+Space SUPER+SHIFT+Escape
+set -euo pipefail
+DIR="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+VOICE="$DIR/bin/sudoclaude-voice"
+TALK="${1:-SUPER+Space}"
+STOP="${2:-SUPER+SHIFT+Escape}"
+H="${XDG_CONFIG_HOME:-$HOME/.config}/hypr"
+
+taken() {
+    # Is MODS+KEY bound already? Compare against the live binds.
+    hyprctl binds -j 2>/dev/null | python3 -c '
+import json, sys
+mods = {"SHIFT": 1, "CAPS": 2, "CTRL": 4, "CONTROL": 4, "ALT": 8, "MOD2": 16, "MOD3": 32,
+        "SUPER": 64, "WIN": 64, "LOGO": 64, "MOD4": 64, "MOD5": 128}
+parts = [p.strip() for p in sys.argv[1].replace(",", "+").split("+") if p.strip()]
+key = parts[-1].lower()
+mask = sum(mods.get(p.upper(), 0) for p in parts[:-1])
+for b in json.load(sys.stdin):
+    if b.get("modmask") == mask and (b.get("key") or "").lower() == key \
+            and "sudoclaude" not in (b.get("arg") or ""):
+        print(b.get("description") or b.get("dispatcher", "") + " " + (b.get("arg") or ""))
+        sys.exit(0)
+sys.exit(1)' "$1"
+}
+
+if grep -rqs "sudoclaude-voice listen" "$H"; then
+    echo "Keybinds are already set up."
+    exit 0
+fi
+
+for combo in "$TALK" "$STOP"; do
+    if what="$(taken "$combo")"; then
+        echo "$combo is already bound ($what)."
+        echo "Pick another, e.g.: $0 SUPER+ALT+C SUPER+ALT+X"
+        exit 1
+    fi
+done
+
+if [[ -f "$H/hyprland.lua" ]]; then
+    file="$H/custom/keybinds.lua"
+    [[ -d "$H/custom" ]] || file="$H/hyprland.lua"
+    [[ -f "$file" ]] && cp "$file" "$file.bak-sudoclaude"
+    cat >> "$file" <<EOF
+
+-- SudoClaude: talk to Claude (press again to end the turn or cut in), and stop it.
+hl.bind("$TALK", hl.dsp.exec_cmd("$VOICE listen"), { description = "Claude: talk" })
+hl.bind("$STOP", hl.dsp.exec_cmd("$VOICE stop"), { description = "Claude: stop" })
+EOF
+else
+    file="$H/custom/keybinds.conf"
+    [[ -d "$H/custom" ]] || file="$H/hyprland.conf"
+    [[ -f "$file" ]] && cp "$file" "$file.bak-sudoclaude"
+    conf() { local p=(${1//+/ }); local key="${p[-1]}"; unset 'p[-1]'; echo "${p[*]}, $key"; }
+    cat >> "$file" <<EOF
+
+# SudoClaude: talk to Claude (press again to end the turn or cut in), and stop it.
+bindd = $(conf "$TALK"), Claude: talk, exec, $VOICE listen
+bindd = $(conf "$STOP"), Claude: stop, exec, $VOICE stop
+EOF
+fi
+echo "Added $TALK (talk) and $STOP (stop) to $file"
+hyprctl reload >/dev/null 2>&1 || true
