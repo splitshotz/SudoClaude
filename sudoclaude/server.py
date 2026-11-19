@@ -994,8 +994,8 @@ class Desktop:
             combos = ["Return" if ch == "\n" else "Tab" if ch == "\t" else
                       ("space" if ch == " " else ch) for ch in text]
             self.policy.require(self.find_window(id=bg)["app"], "type")
-            self._key_background([self.parse_combo(k) for k in combos], bg, 1)
-            return
+            w = self._key_background([self.parse_combo(k) for k in combos], bg, 1)
+            return f"typed in the background into {w['app']}:"
         self.policy.require(self.focused_app(), "type")
         self.begin("Typing", "Typing…")
         if method == "auto":
@@ -1502,7 +1502,9 @@ def tool_computer(a):
             lines.append(f"{i} {step.get('action')}: FAILED {e} (stopped here)")
             break
     out = [txt("\n".join(lines))] + blocks
-    return out + after_blocks(a.get("after", "low"), a.get("settle_ms"), a.get("monitor"))
+    last = (seq[-1].get("action") if seq else "") or ""
+    default = "none" if last in ("screenshot", "zoom", "cursor_position", "diff") else "low"
+    return out + after_blocks(a.get("after", default), a.get("settle_ms"), a.get("monitor"))
 
 
 def tool_open_application(a):
