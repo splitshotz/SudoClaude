@@ -44,7 +44,17 @@ if command -v claude >/dev/null; then
   claude mcp add -s user sudoclaude -- "$BIN" && echo "Added to Claude Code"
 fi
 
-"$DIR/bin/sudoclaude-browser-setup" || echo "Browser extension setup failed; run bin/sudoclaude-browser-setup later."
+if command -v chromium >/dev/null || command -v google-chrome-stable >/dev/null; then
+  read -rp "Set up the Chromium extension (lets Claude work inside browser tabs)? [y/N] " a
+  [[ "${a:-n}" =~ ^[Yy] ]] && { "$DIR/bin/sudoclaude-browser-setup" || \
+    echo "Browser extension setup failed; run bin/sudoclaude-browser-setup later."; }
+fi
+
+read -rp "Set up the \"Claude\" voice assistant too (downloads ~2 GB of models)? [y/N] " a
+if [[ "${a:-n}" =~ ^[Yy] ]]; then
+  "$DIR/install-voice.sh" || echo "Voice setup failed; run ./install-voice.sh later."
+  "$DIR/bin/sudoclaude-keybind" || echo "Skipped the keybind; see the README."
+fi
 
 echo
 printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}' \
