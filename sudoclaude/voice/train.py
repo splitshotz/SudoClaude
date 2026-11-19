@@ -37,7 +37,20 @@ GENERAL = ["open discord", "what time is it", "close this window", "move it to w
            "hello there", "no thank you", "let me think about it", "the weather is nice",
            "I need to finish this first", "send it over when you can", "nice shot",
            "push left", "he's one shot", "rotate rotate", "did you see that", "what's up",
-           "okay so basically", "I'll be right back", "can you hear me", "good game"]
+           "okay so basically", "I'll be right back", "can you hear me", "good game",
+           "I don't know if you can see it", "okay I will take it from there", "no worries",
+           "did you finish your homework", "dinner is almost ready", "where did you put the keys",
+           "it's raining again", "turn that down a little", "we should leave at five",
+           "that's so funny", "what are you doing", "I can't find my charger", "call me later",
+           "the class starts at eight", "how was school", "pass me the remote",
+           "can you clean your room", "it's on the table", "let's go", "look at this",
+           "I already told you", "maybe tomorrow", "that sounds good to me", "really? no way",
+           "they can't really dance", "who's coming tonight", "the dog needs to go out",
+           "close the door please", "I'm going to the store", "what did he say"]
+SPANISH = ["qué estás haciendo", "ven a comer", "dónde está tu papá", "ya está listo",
+           "no sé", "mañana temprano", "apaga la luz", "cómo te fue", "dame un momento",
+           "está lloviendo", "vamos a salir", "claro que sí", "el carro está afuera",
+           "no me digas", "tengo que trabajar", "qué hora es"]
 
 
 def to16(audio, sr):
@@ -78,8 +91,8 @@ def speak_kokoro():
     k = Kokoro(os.path.join(base, "kokoro-v1.0.onnx"), os.path.join(base, "voices-v1.0.bin"))
     voices = [v for v in sorted(k.get_voices()) if v[:1] in "abef"]
 
-    def say(text, voice, speed):
-        lang = "en-gb" if voice[:1] == "b" else "en-us"
+    def say(text, voice, speed, lang=None):
+        lang = lang or ("en-gb" if voice[:1] == "b" else "en-us")
         a, sr = k.create(text, voice=voice, speed=speed, lang=lang)
         return to16(a, sr)
     return say, voices
@@ -135,7 +148,13 @@ def dataset(rng, use_chatterbox=True):
                 neg.append(place(say(text, v, 1.0), rng, rng.uniform(-62, -32)))
             except Exception:
                 pass
-        for text in rng.choice(GENERAL, 4, replace=False):
+        if v[:1] == "e":
+            for text in rng.choice(SPANISH, 6, replace=False):
+                try:
+                    neg.append(place(say(text, v, 1.0, "es"), rng, rng.uniform(-62, -32), end_bias=False))
+                except Exception:
+                    pass
+        for text in rng.choice(GENERAL, 8, replace=False):
             try:
                 neg.append(place(say(text, v, 1.0), rng, rng.uniform(-62, -32), end_bias=False))
             except Exception:
