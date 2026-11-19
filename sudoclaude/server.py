@@ -762,6 +762,7 @@ class Desktop:
             for m in reversed(mods):
                 self.kbd.key(m, False)
             self.sync()
+            self.copilot.after_pointer(b[0], b[1], target)
 
     def path(self, points, button=None, duration_ms=400, space=None, release=True,
              modifiers=None):
@@ -770,7 +771,9 @@ class Desktop:
             raise ValueError("path needs at least 2 points")
         pts = [self.to_logical(px, py, space) for px, py in points]
         self.policy.require(self.app_at(*pts[0]), "type" if button else "click")
-        self.begin("Dragging" if button else "Moving", "Path", pts[0][0], pts[0][1])
+        target = self._target(*pts[0])
+        self.copilot.before_pointer(target)
+        self.begin("Dragging" if button else "Moving", "Path", pts[0][0], pts[0][1], win=target)
         mods = self._mods(modifiers)
         seg = [math.dist(pts[i], pts[i + 1]) for i in range(len(pts) - 1)]
         total = sum(seg) or 1
@@ -804,6 +807,7 @@ class Desktop:
             for m in reversed(mods):
                 self.kbd.key(m, False)
             self.sync()
+            self.copilot.after_pointer(pts[-1][0], pts[-1][1], target)
 
     def scroll(self, x=None, y=None, dy=0, dx=0, space=None, modifiers=None):
         self.wl()
