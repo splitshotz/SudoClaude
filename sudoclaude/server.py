@@ -225,7 +225,7 @@ class Desktop:
             if sp:
                 visible[sp] = m
         if win.get("workspace_id") in visible or win.get("pinned"):
-            return {"mode": "window", "winX": win["x"], "winY": win["y"],
+            return {"mode": "window", "winId": win["id"], "winX": win["x"], "winY": win["y"],
                     "winW": win["width"], "winH": win["height"],
                     "screen": mon_name.get(win.get("monitor"), "")}
         cur = (active.get("workspace") or {}).get("id") or 0

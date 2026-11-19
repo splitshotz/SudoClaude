@@ -285,18 +285,20 @@ class Hyprland:
         raise RuntimeError("Hyprland 0.54+ uses Lua dispatchers, e.g. "
                            "'hl.dsp.window.fullscreen()' or 'hl.dsp.focus({workspace = \"3\"})'")
 
-    def overlay_rules(self, in_captures=False):
+    def overlay_rules(self, in_captures=True):
+        # Blur with xray off, so the pill frosts the windows behind it rather than
+        # only the wallpaper (end-4 turns xray on for every layer). The overlay
+        # stays in the user's own screenshots; SudoClaude's captures hide it for
+        # a frame instead.
+        glass = {"blur": True, "ignore_alpha": 0.05, "xray": False}
         rules = [{"name": "sudoclaude-overlay", "match": {"namespace": "^claude-computer-use$"},
-                  "no_screen_share": True, "no_anim": True},
+                  "no_anim": True},
                  {"name": "sudoclaude-glass", "match": {"namespace": "^claude-cu-glass$"},
-                  "no_screen_share": True, "no_anim": True, "blur": True,
-                  "ignore_alpha": 0.05},
+                  "no_anim": True, **glass},
                  {"name": "sudoclaude-corner", "match": {"namespace": "^claude-cu-corner$"},
-                  "no_screen_share": True, "no_anim": True, "blur": True,
-                  "ignore_alpha": 0.05}]
-        if in_captures:
-            for r in rules:
-                r["no_screen_share"] = False
+                  "no_anim": True, **glass}]
+        for r in rules:
+            r["no_screen_share"] = not in_captures
         if self.lua:
             for r in rules:
                 try:
@@ -305,12 +307,21 @@ class Hyprland:
                     pass
             return True
         for rule in ("noanim, claude-computer-use", "noanim, claude-cu-glass",
-                     "blur, claude-cu-glass", "ignorealpha 0.05, claude-cu-glass"):
+                     "blur, claude-cu-glass", "ignorealpha 0.05, claude-cu-glass",
+                     "xray 0, claude-cu-glass", "noanim, claude-cu-corner",
+                     "blur, claude-cu-corner", "ignorealpha 0.05, claude-cu-corner",
+                     "xray 0, claude-cu-corner"):
             try:
                 self.raw("keyword layerrule " + rule)
             except Exception:
                 pass
         return False
+
+    def rounding(self):
+        try:
+            return int(self.j("getoption decoration:rounding").get("int", 0))
+        except Exception:
+            return None
 
     def esc_listen(self, path):
         if self.lua:
@@ -321,6 +332,31 @@ class Hyprland:
             return
         if not any(path in (b.get("arg") or "") for b in self.j("binds")):
             self.raw(f"keyword bindn , Escape, exec, touch {path}")
+
+    def space_listen(self, path, gap_ms=350):
+        """Touch `path` on a quick double tap of Space. The keys still reach
+        whatever app has focus."""
+        if self.lua:
+            self.eval("if _G.__sudoclaude_space then _G.__sudoclaude_space:remove() end "
+                      "local last = -1 "
+                      "_G.__sudoclaude_space = hl.on(\"input.keyboard.key\", function(code, t, state) "
+                      "if state ~= 1 then return end "
+                      "if code ~= 65 then last = -1 return end "
+                      f"if last >= 0 and t - last < {int(gap_ms)} then last = -1 "
+                      f"local f = io.open({lua_str(path)}, \"w\") if f then f:close() end "
+                      "else last = t end end)")
+            return
+        stamp = path + ".last"
+        script = (f"now=$(date +%s%3N); last=$(cat {stamp} 2>/dev/null || echo 0); "
+                  f"echo $now > {stamp}; [ $((now - last)) -lt {int(gap_ms)} ] && touch {path}")
+        self.raw(f"keyword bindn , space, exec, sh -c '{script}'")
+
+    def space_unlisten(self):
+        if self.lua:
+            self.eval("if _G.__sudoclaude_space then _G.__sudoclaude_space:remove() "
+                      "_G.__sudoclaude_space = nil end")
+            return
+        self.raw("keyword unbind , space")
 
     def esc_unlisten(self, path):
         if self.lua:

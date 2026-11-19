@@ -17,8 +17,9 @@ class Overlay:
     """Client for the shared overlay process. Several clients (the MCP server
     in each Claude session, the voice daemon) talk to one Quickshell instance."""
 
-    def __init__(self, on_stop=None, comp=None):
+    def __init__(self, on_stop=None, comp=None, on_event=None):
         self.on_stop = on_stop
+        self.on_event = on_event
         self.comp = comp
         self.sock = None
         self.bin = shutil.which("qs") or shutil.which("quickshell")
@@ -33,8 +34,30 @@ class Overlay:
                 self.state["style"] = style
         except (OSError, ValueError):
             pass
+        self._shape_sent = False
 
-    @property
+    def _shape(self):
+        """Corner radii that match this desktop: Hyprland's window rounding, and
+        end-4's rounded screen corners when that shell is installed."""
+        msg = {}
+        r = self.comp.rounding() if self.comp and hasattr(self.comp, "rounding") else None
+        if r is not None:
+            msg["windowRadius"] = r
+        cfg = os.path.expanduser("~/.config/illogical-impulse/config.json")
+        try:
+            with open(cfg) as f:
+                corners = json.load(f).get("appearance", {}).get("fakeScreenRounding", 1)
+            msg["screenRadius"] = 23 if corners else 0
+        except (OSError, ValueError):
+            msg["screenRadius"] = 0 if not os.path.isdir(os.path.dirname(cfg)) else 23
+        return msg
+
+    def _rules(self):
+        if self.comp:
+            try:
+                self.comp.overlay_rules()
+            except Exception:
+                pass
     def available(self):
         return bool(self.bin) and os.path.exists(QML)
 
@@ -47,6 +70,7 @@ class Overlay:
     def _spawn(self):
         if os.path.exists(SOCK):
             os.unlink(SOCK)
+        os.makedirs(os.path.expanduser("~/.local/state/sudoclaude"), exist_ok=True)
         env = dict(os.environ, SUDOCLAUDE_SOCK=SOCK, QT_QPA_PLATFORM="wayland")
         log = open(LOG, "w")
         subprocess.Popen([self.bin, "-p", QML], env=env, stdout=log, stderr=subprocess.STDOUT,
@@ -61,11 +85,7 @@ class Overlay:
             try:
                 self._connect()
             except OSError:
-                if self.comp:
-                    try:
-                        self.comp.overlay_rules()
-                    except Exception:
-                        pass
+                self._rules()
                 self._spawn()
                 deadline = time.time() + 6
                 while True:
@@ -76,6 +96,12 @@ class Overlay:
                         if time.time() > deadline:
                             raise RuntimeError("overlay did not start; see " + LOG)
                         time.sleep(0.08)
+            if not self._shape_sent:
+                try:
+                    self.state.update(self._shape())
+                except Exception:
+                    pass
+                self._shape_sent = True
             if self.state:
                 self._raw(self.state)
             self.error = None
@@ -105,6 +131,11 @@ class Overlay:
                 if m.get("event") == "stop" and self.on_stop and \
                         (self.state.get("active") or self.state.get("voice")):
                     self.on_stop()
+                elif m.get("event") and m.get("event") != "stop" and self.on_event:
+                    try:
+                        self.on_event(m)
+                    except Exception:
+                        pass
         with self._lock:
             if self.sock is s:
                 self.sock = None
@@ -118,6 +149,10 @@ class Overlay:
             return False
 
     def send(self, **msg):
+        was = bool(self.state.get("active") or self.state.get("voice"))
+        if (msg.get("active") or msg.get("voice")) and not was:
+            # Runtime layer rules are dropped whenever Hyprland reloads its config.
+            self._rules()
         for k, v in msg.items():
             if k not in ("click", "quit"):
                 self.state[k] = v
@@ -128,13 +163,13 @@ class Overlay:
                 self._raw(msg)
 
     def capture_hide(self):
-        if self.sock and self.state.get("active") and not (self.comp and self.comp.lua):
+        if self.sock and (self.state.get("active") or self.state.get("voice")):
             self._raw({"capturing": True})
             return True
         return False
 
     def capture_show(self):
-        if self.sock and not (self.comp and self.comp.lua):
+        if self.sock:
             self._raw({"capturing": False})
 
     def stop(self):

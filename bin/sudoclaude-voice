@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# listen and stop are meant for keybinds, so they skip Python and just signal
+# the running assistant.
+case "$1" in
+    listen) exec systemctl --user kill --kill-whom=main -s USR1 sudoclaude-voice.service ;;
+    stop)   exec systemctl --user kill --kill-whom=main -s USR2 sudoclaude-voice.service ;;
+esac
 here="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 venv="${SUDOCLAUDE_VENV:-$HOME/.local/share/sudoclaude/venv}"
 cd "$here" && exec "$venv/bin/python" -m sudoclaude.voice "$@"
