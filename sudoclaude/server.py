@@ -1195,7 +1195,104 @@ class Desktop:
         head = f'{w["app"]}: "{w["title"][:70]}"  coords={space}'
         return head + "\n" + ("\n".join(lines) if lines else "(no matching elements)")
 
+    def see(self, window=None, detail="normal", query=None):
+        """One look at an app the way computer use on macOS/Windows does it: a
+        screenshot of the window with every control it exposes numbered on top,
+        plus OCR'd text as fallback targets for apps that expose nothing.
+        Works on windows that are behind others or on other workspaces."""
+        if not (self.cap and self.cap.can_window):
+            raise RuntimeError("see needs Hyprland window capture and python-pillow")
+        c = self.need_comp()
+        if window:
+            w = self.find_window(**window) if isinstance(window, dict) else self.find_window(id=window)
+        else:
+            fid = c.active_window()
+            w = self.find_window(id=fid)
+        self.policy.require(w["app"], "view", w["title"])
+        img = self.cap.window(w["id"]).convert("RGB")
+        iw, ih = img.size
+        sx, sy = iw / max(1, w["width"]), ih / max(1, w["height"])
+        marks, legend = [], []
+        self.ocr_marks = {}
+        tree_n = 0
+        if a11y.available():
+            try:
+                text = self.a11y_tree({"id": w["id"]}, query, True, 160)
+                lines = {}
+                for ln in text.splitlines():
+                    m = re.match(r"\s*\[(e\d+)\] (.*)", ln)
+                    if m:
+                        lines[m.group(1)] = re.sub(r" @\(\d+,\d+\)", "", m.group(2))
+                for ref, (_node, box) in (self.tree.refs if self.tree else {}).items():
+                    if not box:
+                        continue
+                    bx, by, bw, bh = box
+                    r = ((bx - w["x"]) * sx, (by - w["y"]) * sy, (bx - w["x"] + bw) * sx,
+                         (by - w["y"] + bh) * sy)
+                    if r[2] <= 0 or r[3] <= 0 or r[0] >= iw or r[1] >= ih:
+                        continue
+                    marks.append((ref, r))
+                    legend.append(f"[{ref}] {lines.get(ref, '')}")
+                    tree_n += 1
+            except Exception as e:
+                log("see: no tree:", e)
+        if tree_n < 4 and self.tesseract:
+            n = 0
+            for words in ocr_lines(img).values():
+                good = [x for x in words if x[5] > 45]
+                if not good:
+                    continue
+                textl = " ".join(x[0] for x in good).strip()
+                if len(textl) < 2:
+                    continue
+                x0 = min(x[1] for x in good); y0 = min(x[2] for x in good)
+                x1 = max(x[1] + x[3] for x in good); y1 = max(x[2] + x[4] for x in good)
+                n += 1
+                ref = f"t{n}"
+                marks.append((ref, (x0, y0, x1, y1)))
+                self.ocr_marks[ref] = (w["x"] + (x0 + x1) / 2 / sx, w["y"] + (y0 + y1) / 2 / sy)
+                legend.append(f'[{ref}] text "{textl[:70]}"')
+                if n >= 120:
+                    break
+        edge = {"low": 960, "normal": 1280, "high": 1568}.get(detail, 1280)
+        sc = min(1.0, edge / max(iw, ih))
+        if sc < 1:
+            img = img.resize((round(iw * sc), round(ih * sc)), Image.LANCZOS)
+        draw = ImageDraw.Draw(img, "RGBA")
+        try:
+            from PIL import ImageFont
+            font = ImageFont.truetype("DejaVuSans-Bold.ttf", 11)
+        except Exception:
+            font = None
+        for ref, (x0, y0, x1, y1) in marks:
+            box = [x0 * sc, y0 * sc, x1 * sc, y1 * sc]
+            draw.rectangle(box, outline=(217, 119, 87, 200), width=1)
+            tw = draw.textlength(ref, font=font) if font else 6 * len(ref)
+            lx, ly = box[0], max(0, box[1] - 13)
+            draw.rectangle([lx, ly, lx + tw + 4, ly + 13], fill=(217, 119, 87, 230))
+            draw.text((lx + 2, ly + 1), ref, fill=(255, 255, 255, 255), font=font)
+        sp = Space("window", w["x"], w["y"], w["width"], w["height"], img.size[0], img.size[1],
+                   None, w["id"])
+        self.shot_space = sp
+        vis = {v["id"] for v in c.visible_windows()}
+        head = (f'{w["app"]}: "{w["title"][:70]}"{"" if w["id"] in vis else " (not on screen)"}. '
+                f'{tree_n} controls from accessibility'
+                + (f", {len(self.ocr_marks)} text targets from OCR" if self.ocr_marks else "")
+                + ". Act with ui act ref=… (accessibility refs work in the background; text "
+                  "targets borrow the pointer), or click x,y in this image.")
+        return self._encode(img), head + "\n" + "\n".join(legend)
+
     def a11y_action(self, ref, action="click", text=None, value=None):
+        if ref in getattr(self, "ocr_marks", {}):
+            x, y = self.ocr_marks[ref]
+            if action in ("click", "press", "activate", "default"):
+                self.click(x, y, space="logical")
+            elif action == "set_text":
+                self.click(x, y, space="logical")
+                self.type(text or "")
+            else:
+                raise ValueError(f"{action} isn't available on an OCR text target; click it instead")
+            return {"ok": True, "via": "pointer"}
         if not self.tree or not self.tree_window:
             raise ValueError("call accessibility_tree first")
         w = self.tree_window
@@ -1320,14 +1417,17 @@ TOOLS = [
          "include_hidden": {"type": "boolean"}, "wait_ms": {"type": "integer"},
          "after": AFTER}, "required": ["action"]}},
     {"name": "ui",
-     "description": "Read and operate an app's real UI through accessibility, without the "
-                    "mouse. tree: buttons, fields, menus, tabs with names, values, states "
+     "description": "Read and operate any app's real UI, without the mouse where possible. "
+                    "see: the best first look at an app: a window screenshot (even if it's "
+                    "hidden or on another workspace) with every control numbered, plus OCR'd "
+                    "text targets when the app exposes no accessibility; then act on a ref. "
+                    "tree: buttons, fields, menus, tabs with names, values, states "
                     "and click points (refs like e12; cheap text, prefer it over "
                     "screenshots when it answers the question). act: op = click, focus, "
                     "set_text, get_text, set_value, select, toggle, expand, "
                     "scroll_into_view. find_text: OCR for apps without accessibility.",
      "inputSchema": {"type": "object", "properties": {
-         "action": {"type": "string", "enum": ["tree", "act", "find_text"]},
+         "action": {"type": "string", "enum": ["see", "tree", "act", "find_text"]},
          "window": WIN, "query": {"type": "string"},
          "interactive_only": {"type": "boolean"}, "max_nodes": {"type": "integer"},
          "ref": {"type": "string"}, "op": {"type": "string"},
@@ -1393,8 +1493,9 @@ Be efficient. Screenshots are the expensive part, so:
   the mouse.
 Coordinates default to the pixels of the latest screenshot. Keys held with key_down stay
 down until key_up. If a call says the user stopped computer use, stop and ask them.
-For anything on a website, use the browser tool (Chromium) instead of screenshots and
-clicks: read the page, act on refs, and open new tabs in the background.
+To work in an app, start with ui see (numbered controls on a window screenshot) and act
+on refs: accessibility refs click and type in the background without the pointer. For
+Chromium tabs, the browser tool (or Claude in Chrome) is faster still.
 The user may be working at the same time. While they're active, apps you open land beside
 them without taking focus (launch target='auto' does the same, and picks a free workspace
 when they're in a fullscreen game or video), keys you send without a window go to your
@@ -1798,6 +1899,9 @@ def tool_ui(a):
         return [txt(res)] + after_blocks(after)
     if act == "find_text":
         return [txt(json.dumps(find_text(a["query"], a.get("monitor"), window=a.get("window"))))]
+    if act == "see":
+        data, legend = D.see(a.get("window"), a.get("detail") or "normal", a.get("query"))
+        return [img_block(data), txt(legend)]
     raise ValueError(f"unknown ui action {act!r}")
 
 
