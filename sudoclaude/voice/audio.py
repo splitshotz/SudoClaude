@@ -39,11 +39,13 @@ class Mic:
         self.level = 0.0
 
     def start(self):
-        cmd = ["pw-record", "--rate", str(RATE), "--channels", "1", "--format", "f32",
-               "--latency", "40ms", "-P", "{ node.name = sudoclaude-listen }"]
+        if self.target and self.target.startswith("file:"):
+            threading.Thread(target=self._file, args=(self.target[5:],), daemon=True).start()
+            return
+        cmd = ["parec", "--raw", "--format=float32le", f"--rate={RATE}", "--channels=1",
+               "--latency-msec=40", "--client-name=sudoclaude", "--stream-name=sudoclaude-listen"]
         if self.target:
-            cmd += ["--target", self.target]
-        cmd.append("-")
+            cmd.append(f"--device={self.target}")
         self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         threading.Thread(target=self._pump, daemon=True).start()
 
@@ -56,7 +58,8 @@ class Mic:
                 break
             buf += d
             while len(buf) >= need:
-                chunk = np.frombuffer(buf[:need], dtype=np.float32).copy()
+                chunk = np.nan_to_num(np.frombuffer(buf[:need], dtype="<f4"), nan=0.0,
+                                      posinf=0.0, neginf=0.0).clip(-1, 1).astype(np.float32)
                 buf = buf[need:]
                 self.level = float(np.sqrt(np.mean(chunk * chunk)))
                 try:
@@ -67,6 +70,32 @@ class Mic:
                     except queue.Empty:
                         pass
                     self.q.put_nowait(chunk)
+
+    def _file(self, path):
+        """Test input: plays WAV files through the pipeline in real time, then silence."""
+        import soundfile as sf
+        silence = np.zeros(CHUNK, dtype=np.float32)
+        for p in path.split(","):
+            if p.startswith("pause"):
+                for _ in range(int(float(p[5:] or 3) / (CHUNK / RATE))):
+                    self.q.put(silence)
+                    time.sleep(CHUNK / RATE)
+                continue
+            audio, sr = sf.read(p, dtype="float32")
+            if audio.ndim > 1:
+                audio = audio.mean(axis=1)
+            if sr != RATE:
+                audio = np.interp(np.arange(0, len(audio), sr / RATE), np.arange(len(audio)),
+                                  audio).astype(np.float32)
+            audio = np.concatenate([np.zeros(RATE, np.float32), audio])
+            for i in range(0, len(audio) - CHUNK + 1, CHUNK):
+                chunk = audio[i:i + CHUNK]
+                self.level = float(np.sqrt(np.mean(chunk * chunk)))
+                self.q.put(chunk)
+                time.sleep(CHUNK / RATE)
+        while True:
+            self.q.put(silence)
+            time.sleep(CHUNK / RATE)
 
     def read(self, timeout=1.0):
         return self.q.get(timeout=timeout)
@@ -101,9 +130,9 @@ class Speaker:
         if self.proc and self.proc.poll() is None:
             return
         self.proc = subprocess.Popen(
-            ["pw-cat", "--playback", "--rate", str(self.rate), "--channels", "1",
-             "--format", "f32", "--latency", "60ms", "--media-role", "Assistant",
-             "-P", "{ node.name = sudoclaude-voice media.name = sudoclaude-voice }", "-"],
+            ["pacat", "--playback", "--raw", "--format=float32le", f"--rate={self.rate}",
+             "--channels=1", "--latency-msec=60", "--client-name=sudoclaude",
+             "--stream-name=sudoclaude-voice"],
             stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
 
     def say(self, audio):
@@ -141,7 +170,7 @@ class Speaker:
             r = subprocess.run(["pactl", "-f", "json", "list", "sink-inputs"],
                                capture_output=True, text=True, timeout=2)
             for si in json.loads(r.stdout or "[]"):
-                if si.get("properties", {}).get("node.name") == "sudoclaude-voice":
+                if si.get("properties", {}).get("media.name") == "sudoclaude-voice":
                     subprocess.run(["pactl", "set-sink-input-volume", str(si["index"]),
                                     f"{int(factor * 100)}%"], timeout=2)
         except Exception:
@@ -195,7 +224,7 @@ class Ducker:
         try:
             for si in self._inputs():
                 props = si.get("properties", {})
-                if "sudoclaude" in (props.get("media.name", "") + props.get("node.name", "")):
+                if "sudoclaude" in (props.get("media.name", "") + props.get("application.name", "")):
                     continue
                 vols = [int(str(c.get("value_percent", "100%")).rstrip("%"))
                         for c in (si.get("volume") or {}).values()]
