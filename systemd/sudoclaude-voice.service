@@ -1,0 +1,13 @@
+[Unit]
+Description=SudoClaude voice
+After=pipewire.service pipewire-pulse.service graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+ExecStart=%h/Projects/SudoClaude/bin/sudoclaude-voice run
+Restart=on-failure
+RestartSec=3
+Nice=-5
+
+[Install]
+WantedBy=graphical-session.target

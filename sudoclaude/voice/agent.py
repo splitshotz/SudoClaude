@@ -1,0 +1,226 @@
+import asyncio
+import os
+import re
+import shutil
+import sys
+import threading
+import time
+
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+PROMPT = """You are Claude, talking out loud with Andrew through his desktop microphone and speakers on his Linux PC (Hyprland). He woke you by saying your name.
+
+How to talk:
+- Everything you write is spoken aloud by a voice engine. Write the way a person speaks: short sentences, no markdown, no lists, no code, no URLs, no emoji. Spell out symbols when they matter.
+- Keep answers short unless he asks for detail. One or two sentences is usually right.
+- Before doing anything that takes more than a few seconds, say a few words first ("On it." / "Opening Discord.") so he isn't left in silence, then do it.
+- When a task is done, confirm in a few words. Don't narrate each step.
+- If you didn't catch something or it's ambiguous, ask a quick question.
+- After you answer, the mic stays open for a few seconds so he can follow up without saying your name. Those messages start with "(follow-up)". If one clearly isn't meant for you (he's talking to someone else, on a call, reading something aloud, game chatter), reply with exactly [ignore] and nothing else.
+- When the conversation is clearly over ("thanks", "that's all", "never mind", "I'm good"), give a two or three word sign-off at most, or nothing, and end your reply with [end]. Also end with [end] when you've finished a one-shot task and nothing suggests he wants to keep talking.
+- Messages starting with "(interrupting)" were said while you were still talking or working. Stop what you were doing if he asks you to; otherwise take it into account.
+
+What you can do:
+- You control his desktop through the sudoclaude tools: open apps, switch workspaces, click, type, read screens and windows. Act without asking for confirmation on ordinary tasks; the tool itself prompts for anything sensitive.
+- He may be working at the same time. Leave his focused window alone. Open what you need on a free workspace or beside him (the desktop tool's launch action with a target workspace does this without stealing focus), and prefer background-safe actions (ui tree/act, key with window) over taking his cursor.
+- If he's in a fullscreen game or video, never put windows on his workspace. Work on another one.
+- You can also run shell commands and search the web when that's faster than clicking.
+"""
+
+RISKY = re.compile(
+    r"\b(rm\s+-[a-z]*[rf]|sudo|doas|pkexec|mkfs|dd\s+if=|shred|wipefs|parted|fdisk|"
+    r"chmod\s+-R|chown\s+-R|git\s+push\s+.*(-f|--force)|git\s+reset\s+--hard|"
+    r"git\s+clean|pacman\s+-R|yay\s+-R|paru\s+-R|systemctl\s+(disable|mask)|"
+    r"curl[^|]*\|\s*(ba)?sh|wget[^|]*\|\s*(ba)?sh|>\s*/dev/sd|:\(\)\s*\{)", re.I)
+
+
+YES = re.compile(r"^\W*(yes|yeah|yep|yup|sure|ok(ay)?|do it|go ahead|go for it|confirm(ed)?|"
+                 r"please do|absolutely|sounds good)\b", re.I)
+
+
+SENTENCE = re.compile(r"(.+?[.!?;:])(\s+|$)", re.S)
+
+
+def find_cli():
+    for p in (os.path.expanduser("~/.local/bin/claude"), shutil.which("claude")):
+        if p and os.path.exists(p):
+            return p
+    return None
+
+
+def clean_for_speech(text):
+    text = re.sub(r"```.*?```", " ", text, flags=re.S)
+    text = re.sub(r"`([^`]*)`", r"\1", text)
+    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+    text = re.sub(r"https?://\S+", "", text)
+    text = re.sub(r"[*_#>]+", "", text)
+    text = re.sub(r"^\s*[-•]\s+", "", text, flags=re.M)
+    text = re.sub(r"\[(ignore|end)\]", "", text, flags=re.I)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+class Agent:
+    """One long-lived Claude Code session that keeps conversation context across
+    wake-ups for a while, then starts fresh."""
+
+    def __init__(self, cfg, on_sentence, on_tool=None, log=print):
+        self.cfg = cfg
+        self.on_sentence = on_sentence
+        self.on_tool = on_tool or (lambda name: None)
+        self.log = log
+        self.loop = asyncio.new_event_loop()
+        threading.Thread(target=self.loop.run_forever, daemon=True).start()
+        self.client = None
+        self.last_used = 0.0
+        self.busy = False
+        self._interrupted = False
+        self.denied = None
+        self.armed = None
+
+    async def guard(self, tool, args, ctx):
+        """Everything runs without asking except shell commands that destroy data
+        or need root. Those bounce back so Claude asks out loud, and go through
+        once Andrew says yes on the next turn."""
+        from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny
+        cmd = args.get("command", "") if tool == "Bash" else ""
+        if cmd and RISKY.search(cmd):
+            if self.armed and self.armed == cmd:
+                self.armed = None
+                return PermissionResultAllow()
+            self.denied = cmd
+            return PermissionResultDeny(
+                message="This command can destroy data or needs root. Tell Andrew in one "
+                        "sentence what it does and ask him to confirm. If he says yes, run "
+                        "exactly the same command again.")
+        return PermissionResultAllow()
+
+    def _options(self):
+        from claude_agent_sdk import ClaudeAgentOptions
+        server = os.path.join(REPO, "bin", "sudoclaude")
+        opts = dict(
+            system_prompt={"type": "preset", "preset": "claude_code", "append": PROMPT},
+            mcp_servers={"sudoclaude": {"type": "stdio", "command": sys.executable,
+                                        "args": [server], "env": {"SUDOCLAUDE_VOICE": "1"}}},
+            permission_mode=self.cfg.get("permission_mode", "default"),
+            can_use_tool=self.guard,
+            include_partial_messages=True,
+            cwd=os.path.expanduser("~"),
+            setting_sources=["user"],
+        )
+        if self.cfg.get("model"):
+            opts["model"] = self.cfg["model"]
+        cli = find_cli()
+        if cli:
+            opts["cli_path"] = cli
+        try:
+            return ClaudeAgentOptions(**opts)
+        except TypeError:
+            opts.pop("setting_sources", None)
+            return ClaudeAgentOptions(**opts)
+
+    async def _ensure(self):
+        stale = time.time() - self.last_used > self.cfg.get("memory_minutes", 10) * 60
+        if self.client and stale:
+            await self._close()
+        if not self.client:
+            from claude_agent_sdk import ClaudeSDKClient
+            self.client = ClaudeSDKClient(options=self._options())
+            await self.client.connect()
+
+    async def _close(self):
+        if self.client:
+            try:
+                await self.client.disconnect()
+            except Exception:
+                pass
+            self.client = None
+
+    async def _ask(self, text):
+        from claude_agent_sdk import AssistantMessage, ResultMessage, StreamEvent, TextBlock, ToolUseBlock
+        await self._ensure()
+        self.last_used = time.time()
+        self.armed = self.denied if (self.denied and YES.match(text)) else None
+        self.denied = None
+        await self.client.query(text)
+        pending = ""
+        streamed = False
+        full = []
+
+        def flush(final=False):
+            nonlocal pending
+            while True:
+                m = SENTENCE.match(pending)
+                if not m or (len(m.group(1)) < 12 and not final and m.end() < len(pending) and
+                             len(pending) < 40):
+                    break
+                said = clean_for_speech(m.group(1))
+                pending = pending[m.end():]
+                if said and not self._interrupted:
+                    self.on_sentence(said)
+            if final and pending.strip() and not self._interrupted:
+                said = clean_for_speech(pending)
+                pending = ""
+                if said:
+                    self.on_sentence(said)
+
+        async for msg in self.client.receive_response():
+            if isinstance(msg, StreamEvent):
+                ev = msg.event or {}
+                if msg.parent_tool_use_id:
+                    continue
+                if ev.get("type") == "content_block_delta":
+                    delta = ev.get("delta", {})
+                    if delta.get("type") == "text_delta":
+                        streamed = True
+                        pending += delta.get("text", "")
+                        full.append(delta.get("text", ""))
+                        flush()
+                elif ev.get("type") == "content_block_stop":
+                    flush(final=True)
+            elif isinstance(msg, AssistantMessage):
+                for block in msg.content:
+                    if isinstance(block, ToolUseBlock):
+                        flush(final=True)
+                        self.on_tool(block.name)
+                    elif isinstance(block, TextBlock) and not streamed:
+                        pending += block.text
+                        full.append(block.text)
+                        flush(final=True)
+                streamed = False
+            elif isinstance(msg, ResultMessage):
+                flush(final=True)
+                if msg.is_error:
+                    self.log(f"agent error: {msg.subtype} {msg.errors}")
+        self.last_used = time.time()
+        return "".join(full)
+
+    def ask(self, text):
+        """Blocking. Speaks via on_sentence as text streams in."""
+        self.busy = True
+        self._interrupted = False
+        try:
+            return asyncio.run_coroutine_threadsafe(self._ask(text), self.loop).result()
+        except Exception as e:
+            self.log(f"agent failed: {e!r}")
+            asyncio.run_coroutine_threadsafe(self._close(), self.loop).result()
+            return None
+        finally:
+            self.busy = False
+
+    def interrupt(self):
+        self._interrupted = True
+        if self.client and self.busy:
+            try:
+                asyncio.run_coroutine_threadsafe(self.client.interrupt(), self.loop).result(3)
+            except Exception:
+                pass
+
+    def warm(self):
+        try:
+            asyncio.run_coroutine_threadsafe(self._ensure(), self.loop).result(60)
+            self.last_used = time.time()
+        except Exception as e:
+            self.log(f"agent warmup failed: {e!r}")
+
+    def close(self):
+        asyncio.run_coroutine_threadsafe(self._close(), self.loop).result(10)

@@ -95,7 +95,8 @@ class Overlay:
                     m = json.loads(line)
                 except Exception:
                     continue
-                if m.get("event") == "stop" and self.on_stop and self.state.get("active"):
+                if m.get("event") == "stop" and self.on_stop and \
+                        (self.state.get("active") or self.state.get("voice")):
                     self.on_stop()
         with self._lock:
             if self.sock is s:
