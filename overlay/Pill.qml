@@ -19,6 +19,8 @@ Item {
     property var pal: ({})
     property bool typing: false
     property bool lifted: false
+    property real tilt: 0
+    property real appear: 1
     signal stopRequested()
     signal typed(string text)
 
@@ -47,15 +49,17 @@ Item {
         radius: height / 2
         // Translucent: the compositor blurs whatever is behind it.
         color: Qt.rgba(pill.surface.r, pill.surface.g, pill.surface.b,
-                       pill.solid ? 0.92 : pill.lifted ? 0.42 : 0.3)
+                       pill.solid ? 0.92 : pill.lifted ? 0.34 : 0.26)
         Behavior on color { ColorAnimation { duration: 160 } }
-        border.width: 1
-        border.color: Qt.rgba(pill.fg.r, pill.fg.g, pill.fg.b, 0.06)
+        border.width: 0
     }
-    Rim {
+    Glass {
         anchors.fill: parent
-        strength: pill.lifted ? 1.25 : 1
-        Behavior on strength { NumberAnimation { duration: 160 } }
+        backdrop: pill.backdrop
+        target: pill
+        band: (pill.lifted ? 14 : 11) * pill.appear
+        Behavior on band { NumberAnimation { duration: 180 } }
+        tilt: pill.tilt
     }
 
     Item {
