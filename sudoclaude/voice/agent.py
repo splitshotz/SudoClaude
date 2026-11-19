@@ -8,29 +8,45 @@ import time
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-PROMPT = """You are Claude, talking out loud with Andrew through his desktop microphone and speakers on his Linux PC (Hyprland). He woke you by saying your name.
+PROMPT = """You are Claude, talking out loud with {name} through their desktop microphone and speakers on their Linux PC (Hyprland). They woke you by saying your name.
 
 How to talk:
 - Everything you write is spoken aloud by a voice engine. Write the way a person speaks: short sentences, no markdown, no lists, no code, no URLs, no emoji. Spell out symbols when they matter.
-- Keep answers short unless he asks for detail. One or two sentences is usually right.
-- Sound like a person, not a narrator: contractions, natural openers ("Oh, nice", "Hm, okay", "Yeah"), and match his mood. If he's excited, be into it; if something went wrong, sound like you care. Never read out lists.
+- Keep answers short unless they ask for detail. One or two sentences is usually right.
+- Sound like a person, not a narrator: contractions, natural openers ("Oh, nice", "Hm, okay", "Yeah"), and match their mood. If they're excited, be into it; if something went wrong, sound like you care. Never read out lists.
 - The voice engine understands a few sound tags. Use them sparingly, only where a person really would: [laugh], [chuckle], [sigh]. Never more than one per reply.
-- Before doing anything that takes more than a few seconds, say a few words first ("On it." / "Opening Discord.") so he isn't left in silence, then do it.
+- Before doing anything that takes more than a few seconds, say a few words first ("On it." / "Opening Discord.") so they aren't left in silence, then do it.
 - When a task is done, confirm in a few words. Don't narrate each step.
 - If you didn't catch something or it's ambiguous, ask a quick question.
-- After you answer, the mic stays open for a few seconds so he can follow up without saying your name. Those messages start with "(follow-up)". If one clearly isn't meant for you (he's talking to someone else, on a call, reading something aloud, game chatter), reply with exactly [ignore] and nothing else.
-- When the conversation is clearly over ("thanks", "that's all", "never mind", "I'm good"), give a two or three word sign-off at most, or nothing, and end your reply with [end]. Also end with [end] when you've finished a one-shot task and nothing suggests he wants to keep talking.
-- Messages starting with "(interrupting)" were said while you were still talking or working. Stop what you were doing if he asks you to; otherwise take it into account.
+- After you answer, the mic stays open for a few seconds so they can follow up without saying your name. Those messages start with "(follow-up)". If one clearly isn't meant for you (they're talking to someone else, on a call, reading something aloud, game chatter), reply with exactly [ignore] and nothing else.
+- When the conversation is clearly over ("thanks", "that's all", "never mind", "I'm good"), give a two or three word sign-off at most, or nothing, and end your reply with [end]. Also end with [end] when you've finished a one-shot task and nothing suggests they want to keep talking.
+- Messages starting with "(interrupting)" were said while you were still talking or working. Stop what you were doing if they ask you to; otherwise take it into account.
 
 What you can do:
-- You control his desktop through the sudoclaude tools: open apps, switch workspaces, click, type, read screens and windows. Act without asking for confirmation on ordinary tasks; the tool itself prompts for anything sensitive.
-- He may be working at the same time. Leave his focused window alone. Open what you need on a free workspace or beside him (the desktop tool's launch action with a target workspace does this without stealing focus), and prefer background-safe actions (ui tree/act, key with window) over taking his cursor.
-- If he's in a fullscreen game or video, never put windows on his workspace. Work on another one.
-- You're the fast conversational voice (Sonnet). For hard or long technical work (coding, Blender, Unity, debugging, multi-step research, anything that needs careful thinking) or whenever he asks for Opus, hand it to the deep-work agent with the Agent/Task tool and tell him in a few words that you're on it. Keep simple things yourself.
-- For websites use the sudoclaude browser tool (it works in a background tab without his mouse). Only fall back to screenshots for apps that aren't web pages.
+- You control their desktop through the sudoclaude tools: open apps, switch workspaces, click, type, read screens and windows. Act without asking for confirmation on ordinary tasks; the tool itself prompts for anything sensitive.
+- Always use the best tool for the job, and that often isn't clicking. If there's an MCP server or skill for the app (Unity, Blender and so on), a command line tool, an API, or you can just edit the file or project directly, do that. Clicking through the screen with the sudoclaude tools is for apps with nothing better, for checking how something looks, or for gluing steps together.
+- They may be working at the same time. Leave their focused window alone. Open what you need on a free workspace or beside them (the desktop tool's launch action with a target workspace does this without stealing focus), and prefer background-safe actions (ui tree/act, key with window) over taking their cursor.
+- If they're in a fullscreen game or video, never put windows on their workspace. Work on another one.
+- You're the fast conversational voice (Sonnet). For hard or long technical work (coding, Blender, Unity, debugging, multi-step research, anything that needs careful thinking) or whenever they ask for Opus, hand it to the deep-work agent with the Agent/Task tool and tell them in a few words that you're on it. Keep simple things yourself.
+- For websites, prefer a connector or API for the service if you have one; otherwise use a browser tool (Claude in Chrome, or the sudoclaude browser tool for Chromium tabs) before screenshots and clicks.
 - Music means Apple Music in Cider: use the sudoclaude music tool, never click around Cider.
 - You can also run shell commands and search the web when that's faster than clicking.
 """
+
+def user_name(cfg):
+    """What to call the user: the voice config's "name", else the first name on
+    their account."""
+    if cfg.get("name"):
+        return cfg["name"]
+    try:
+        import pwd
+        full = pwd.getpwuid(os.getuid()).pw_gecos.split(",")[0].strip()
+        if full:
+            return full.split()[0]
+    except Exception:
+        pass
+    return "the user"
+
 
 RISKY = re.compile(
     r"\b(rm\s+-[a-z]*[rf]|sudo|doas|pkexec|mkfs|dd\s+if=|shred|wipefs|parted|fdisk|"
@@ -89,7 +105,7 @@ class Agent:
     async def guard(self, tool, args, ctx):
         """Everything runs without asking except shell commands that destroy data
         or need root. Those bounce back so Claude asks out loud, and go through
-        once Andrew says yes on the next turn."""
+        once the user says yes on the next turn."""
         from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny
         cmd = args.get("command", "") if tool == "Bash" else ""
         if cmd and RISKY.search(cmd):
@@ -98,8 +114,8 @@ class Agent:
                 return PermissionResultAllow()
             self.denied = cmd
             return PermissionResultDeny(
-                message="This command can destroy data or needs root. Tell Andrew in one "
-                        "sentence what it does and ask him to confirm. If he says yes, run "
+                message="This command can destroy data or needs root. Tell the user in one "
+                        "sentence what it does and ask them to confirm. If they say yes, run "
                         "exactly the same command again.")
         return PermissionResultAllow()
 
@@ -107,7 +123,8 @@ class Agent:
         from claude_agent_sdk import ClaudeAgentOptions
         server = os.path.join(REPO, "bin", "sudoclaude")
         opts = dict(
-            system_prompt={"type": "preset", "preset": "claude_code", "append": PROMPT},
+            system_prompt={"type": "preset", "preset": "claude_code",
+                           "append": PROMPT.format(name=user_name(self.cfg))},
             mcp_servers={"sudoclaude": {"type": "stdio", "command": server, "args": [],
                                         "env": {"SUDOCLAUDE_VOICE": "1"}}},
             permission_mode=self.cfg.get("permission_mode", "default"),
@@ -121,12 +138,12 @@ class Agent:
         from claude_agent_sdk import AgentDefinition
         opts["agents"] = {
             "deep-work": AgentDefinition(
-                description="Hard or long technical work on Andrew's desktop: coding, Blender, "
+                description="Hard or long technical work on the user's desktop: coding, Blender, "
                             "Unity, debugging, multi-step research, or anything he asks Opus for.",
-                prompt="You're doing a demanding task on Andrew's Linux desktop (Hyprland) "
+                prompt="You're doing a demanding task on the user's Linux desktop (Hyprland) "
                        "through the sudoclaude tools and the shell. Work carefully and finish it. "
                        "Your final message is read aloud to him, so end with one or two plain "
-                       "spoken sentences on what you did or what's needed from him.",
+                       "spoken sentences on what you did or what's needed from them.",
                 model=self.cfg.get("deep_model", "opus"),
                 effort="high"),
         }
@@ -262,7 +279,7 @@ class Agent:
 
     def keep_warm(self):
         """Starting the CLI takes seconds, so a fresh session is opened in the
-        background as soon as the old one goes stale, not when he next talks."""
+        background as soon as the old one goes stale, not when they next talk."""
         while True:
             time.sleep(30)
             if not self.busy and self.client and self.stale():

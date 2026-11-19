@@ -1487,8 +1487,17 @@ TOOLS = [
 ]
 
 INSTRUCTIONS = """Controls the user's Linux desktop (Hyprland). Whenever the user wants
-something done on their computer, do it with these tools without asking for confirmation;
-the server itself asks the user before sensitive apps.
+something done on their computer, do it without asking for confirmation; the server
+itself asks the user before sensitive apps.
+Pick the best tool for each step, which often isn't this one. Driving a GUI is the
+fallback, not the default. Before clicking through an app, check whether you have
+something more direct: an MCP server or skill made for that app (Unity, Blender, Figma,
+Google Docs, Slack...), a CLI or API, editing its files or project directly, or a shell
+command. Use those whenever they can do the job; they're faster, exact and don't fight
+the user for the screen. Use these desktop tools for what only a person at the screen
+can do: apps with no better interface, checking what something actually looks like,
+dialogs, or tying steps across apps together. Mixing is normal, e.g. edit a Unity scene
+through its MCP, then look at the Game view here to confirm it.
 Be efficient. Screenshots are the expensive part, so:
 - Plan known steps together and send them as one `computer` call with `actions`, then
   check once. Don't screenshot between steps you can predict.
