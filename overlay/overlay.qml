@@ -203,11 +203,18 @@ ShellRoot {
                 captureSource: pillWin.modelData
                 live: stage.on && !shell.capturing
             }
+            ShaderEffectSource {
+                id: behindTex
+                width: 0; height: 0
+                sourceItem: behind
+                hideSource: true
+                live: true
+            }
 
             PillStage {
                 id: stage
                 anchors.fill: parent
-                backdrop: behind
+                backdrop: behindTex
                 insets: pillWin.reserved
                 on: pillWin.here && shell.present && shell.mode !== "corner"
                 visible: on || pill.opacity > 0.01

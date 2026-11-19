@@ -1,9 +1,9 @@
 import QtQuick
 
-// Liquid-glass body for the pill. `backdrop` shows what's behind the pill in the
-// same coordinates as `target`'s parent (a live screen capture in the overlay);
-// only a small patch around the pill is copied each frame. `lumTexture` is the
-// smoothed brightness behind it, for labels that follow the glass.
+// Liquid-glass body for the pill. `backdrop` is a texture of what's behind the
+// pill, covering `target`'s parent (a live screen capture in the overlay).
+// `lumTexture` is the smoothed brightness behind it, for labels that follow the
+// glass.
 ShaderEffect {
     id: glass
     property Item backdrop: null
@@ -26,29 +26,23 @@ ShaderEffect {
     readonly property alias lumTexture: lumSrc
     property size size: Qt.size(width, height)
     visible: backdrop !== null
-    property var backdropTex: patch
+    // Where the pill sits on the screen the backdrop covers.
+    property point origin: target ? Qt.point(target.x, target.y) : Qt.point(0, 0)
+    property size screen: target && target.parent ? Qt.size(target.parent.width, target.parent.height)
+                                                  : Qt.size(1, 1)
+    property var backdropTex: glass.backdrop
     property var lumTex: lumSrc
     fragmentShader: Qt.resolvedUrl("shaders/glass.frag.qsb")
-
-    ShaderEffectSource {
-        id: patch
-        width: 0; height: 0
-        sourceItem: glass.backdrop
-        hideSource: true
-        live: true
-        sourceRect: glass.target ? Qt.rect(glass.target.x - glass.pad, glass.target.y - glass.pad,
-                                           glass.target.width + 2 * glass.pad,
-                                           glass.target.height + 2 * glass.pad)
-                                 : Qt.rect(0, 0, 1, 1)
-    }
 
     ShaderEffect {
         id: probe
         width: 1; height: 1
         property size size: glass.size
+        property point origin: glass.origin
+        property size screen: glass.screen
         property real pad: glass.pad
         property real rate: 0.06
-        property var backdropTex: patch
+        property var backdropTex: glass.backdrop
         property var prevTex: lumSrc
         fragmentShader: Qt.resolvedUrl("shaders/lum.frag.qsb")
     }
