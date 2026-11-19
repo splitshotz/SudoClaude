@@ -78,7 +78,7 @@ Item {
         Behavior on er { NumberAnimation { duration: 900; easing.type: Easing.InOutCubic } }
         Behavior on et { NumberAnimation { duration: 900; easing.type: Easing.InOutCubic } }
         Behavior on eb { NumberAnimation { duration: 900; easing.type: Easing.InOutCubic } }
-        spread: root.mode === "side" ? 80 : root.listening && !root.edgeMode ? 130 : 105
+        spread: root.mode === "side" ? 26 : root.listening && !root.edgeMode ? 60 : 34
         Behavior on spread { NumberAnimation { duration: 900; easing.type: Easing.InOutCubic } }
     }
 
@@ -88,7 +88,7 @@ Item {
         halo: true
         seed: 11.2
         radius: 14
-        spread: 34
+        spread: 20
         level: root.smoothLevel
         rx: root.winX - root.originX
         ry: root.winY - root.originY
