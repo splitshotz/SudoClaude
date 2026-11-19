@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Wayland
 import Quickshell.Io
+import Quickshell.Hyprland
 
 ShellRoot {
     id: shell
@@ -27,6 +28,30 @@ ShellRoot {
     property real level: 0
     property string style: "hairline"
     property var pal: ({})
+    property bool typing: false
+    property string winId: ""
+    property real screenRadius: 23
+    property real windowRadius: 18
+    property string pillAt: "bottom"
+
+    readonly property bool winGone: {
+        if (winId === "" || mode !== "window") return false
+        const id = winId.replace(/^0x/, "")
+        return !Hyprland.toplevels.values.some(t => String(t.address).replace(/^0x/, "") === id)
+    }
+
+    FileView {
+        id: posFile
+        path: Quickshell.env("HOME") + "/.local/state/sudoclaude/pill.json"
+        printErrors: false
+        onLoaded: {
+            try { shell.pillAt = JSON.parse(text()).at || "bottom" } catch (e) {}
+        }
+    }
+    function savePill(at) {
+        shell.pillAt = at
+        try { posFile.setText(JSON.stringify({ at: at }) + "\n") } catch (e) {}
+    }
 
     // The desktop's Material You palette, so the pill matches the shell.
     FileView {
@@ -55,7 +80,7 @@ ShellRoot {
     function handle(m) {
         for (const k of ["active", "capturing", "stopped", "idle", "status", "detail", "action",
                          "mode", "side", "winX", "winY", "winW", "winH", "voice", "transcript",
-                         "level", "style"]) {
+                         "level", "style", "typing", "winId", "screenRadius", "windowRadius"]) {
             if (m[k] !== undefined) shell[k] = m[k]
         }
         if (m.screen !== undefined) shell.focusScreen = m.screen
@@ -121,6 +146,9 @@ ShellRoot {
                 transcript: shell.transcript
                 level: shell.level
                 style: shell.style
+                winGone: shell.winGone
+                screenRadius: shell.screenRadius
+                windowRadius: shell.windowRadius
                 cursorX: shell.cx
                 cursorY: shell.cy
                 focused: win.here
@@ -141,50 +169,38 @@ ShellRoot {
             required property var modelData
             screen: modelData
             readonly property bool here: shell.focusScreen === "" || shell.focusScreen === modelData.name
-            visible: here && shell.mode !== "corner" && (shell.present || pillWrap.opacity > 0.01)
-            anchors { bottom: true }
-            margins { bottom: 26 }
-            // Fixed size: resizing a layer surface every frame is what made the
-            // old pill stutter. Only the pill itself takes input.
-            implicitWidth: 1100
-            implicitHeight: 96
-            exclusionMode: ExclusionMode.Ignore
+            visible: here && shell.mode !== "corner" && (shell.present || stage.pill.opacity > 0.01)
+            // Whole screen minus the bar, so the pill can be thrown anywhere. Only
+            // the pill takes input; everything else clicks straight through.
+            anchors { top: true; bottom: true; left: true; right: true }
+            exclusionMode: ExclusionMode.Normal
+            exclusiveZone: 0
             color: "transparent"
             WlrLayershell.layer: WlrLayer.Overlay
             WlrLayershell.namespace: "claude-cu-glass"
-            WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
-            mask: Region { item: pill }
+            WlrLayershell.keyboardFocus: shell.typing && here ? WlrKeyboardFocus.Exclusive
+                                                               : WlrKeyboardFocus.None
+            mask: Region { item: stage.pill }
 
-            Item {
-                id: pillWrap
+            PillStage {
+                id: stage
                 anchors.fill: parent
-                readonly property bool on: shell.present && shell.mode !== "corner"
-                property real fade: on ? 1 : 0
-                Behavior on fade { NumberAnimation { duration: pillWrap.on ? 220 : 260; easing.type: Easing.OutCubic } }
-                opacity: shell.capturing ? 0 : fade
-                Pill {
-                    id: pill
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    anchors.bottom: parent.bottom
-                    anchors.bottomMargin: 6
-                    pal: shell.pal
-                    transformOrigin: Item.Bottom
-                    scale: pillWrap.on ? 1 : 0.86
-                    Behavior on scale { SpringAnimation { spring: 5; damping: 0.38; epsilon: 0.002 } }
-                    transform: Translate {
-                        y: pillWrap.on ? 0 : 18
-                        Behavior on y { SpringAnimation { spring: 4.5; damping: 0.42 } }
-                    }
-                    status: shell.status
-                    detail: shell.detail
-                    subtitle: shell.transcript
-                    voice: shell.voice
-                    level: shell.level
-                    stopped: shell.stopped
-                    idle: shell.idle
-                    running: shell.present
-                    onStopRequested: shell.send({ event: "stop" })
-                }
+                on: shell.present && shell.mode !== "corner"
+                capturing: shell.capturing
+                at: shell.pillAt
+                onMoved: at => shell.savePill(at)
+                pill.pal: shell.pal
+                pill.status: shell.status
+                pill.detail: shell.detail
+                pill.subtitle: shell.transcript
+                pill.voice: shell.voice
+                pill.level: shell.level
+                pill.stopped: shell.stopped
+                pill.idle: shell.idle
+                pill.running: shell.present
+                pill.typing: shell.typing && pillWin.here
+                onStopRequested: shell.send({ event: "stop" })
+                onTyped: text => { shell.typing = false; shell.send({ event: "typed", text: text }) }
             }
         }
     }

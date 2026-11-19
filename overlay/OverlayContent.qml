@@ -23,6 +23,9 @@ Item {
     property real winY: 0
     property real winW: 0
     property real winH: 0
+    // The window Claude is working in has closed: drop its outline and cursor now
+    // instead of waiting for the session to go idle.
+    property bool winGone: false
     property string voice: ""
     property string style: "hairline"
     // Match the shell: end-4's fake screen corners and Hyprland's window rounding.
@@ -62,7 +65,7 @@ Item {
     onLevelChanged: smoothLevel = level
 
     readonly property bool edgeMode: active && (mode === "full" || mode === "side")
-    readonly property bool windowOn: focused && active && mode === "window" && winW > 0
+    readonly property bool windowOn: focused && active && mode === "window" && winW > 0 && !winGone
     readonly property bool listenOnly: listening && !edgeMode
     readonly property real edgeTarget: !root.focused ? 0
         : listening && !edgeMode ? 0.6
@@ -107,7 +110,7 @@ Item {
         Behavior on rw { NumberAnimation { duration: 650; easing.type: Easing.InOutCubic } }
         Behavior on rh { NumberAnimation { duration: 650; easing.type: Easing.InOutCubic } }
         property real base: root.style === "glow" && root.windowOn ? (root.idle ? 0.6 : 0.95) : 0
-        Behavior on base { NumberAnimation { duration: 700; easing.type: Easing.InOutSine } }
+        Behavior on base { NumberAnimation { duration: root.winGone ? 160 : 700; easing.type: Easing.InOutSine } }
         intensity: base * root.breathe
     }
 
@@ -133,7 +136,7 @@ Item {
         anchors.fill: parent
         intensity: (root.style === "hairline" || root.style === "spotlight") && root.windowOn
                    ? (root.idle ? 0.6 : 1) : 0
-        Behavior on intensity { NumberAnimation { duration: 600; easing.type: Easing.InOutSine } }
+        Behavior on intensity { NumberAnimation { duration: root.winGone ? 160 : 600; easing.type: Easing.InOutSine } }
         outside: true
         radius: root.windowRadius + 2
         travelling: root.style === "hairline" && !root.idle
@@ -171,7 +174,7 @@ Item {
         anchors.fill: parent
         len: 38
         property real base: root.style === "brackets" && root.windowOn ? (root.idle ? 0.5 : 0.95) : 0
-        Behavior on base { NumberAnimation { duration: 500; easing.type: Easing.InOutSine } }
+        Behavior on base { NumberAnimation { duration: root.winGone ? 160 : 500; easing.type: Easing.InOutSine } }
         intensity: base * root.breathe
         rx: root.winX - root.originX - 10
         ry: root.winY - root.originY - 10
@@ -250,8 +253,8 @@ Item {
         y: root.ly
         Behavior on x { SpringAnimation { spring: 3.6; damping: 0.5; epsilon: 0.2 } }
         Behavior on y { SpringAnimation { spring: 3.6; damping: 0.5; epsilon: 0.2 } }
-        opacity: root.idle ? 0.75 : 1
-        Behavior on opacity { NumberAnimation { duration: 400 } }
+        opacity: root.winGone && root.mode === "window" ? 0 : root.idle ? 0.75 : 1
+        Behavior on opacity { NumberAnimation { duration: root.winGone ? 140 : 400 } }
 
         Item {
             id: pointer

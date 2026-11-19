@@ -1,6 +1,7 @@
 import collections
 import json
 import os
+import queue
 import re
 import signal
 import sys
@@ -15,6 +16,7 @@ from .listen import (CHUNK_S, MODELS, Endpointer, Transcriber, Vad, Wake, has_wa
 
 RUNTIME = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
 LOGFILE = os.path.join(RUNTIME, "sudoclaude-voice.log")
+TYPE_FLAG = os.path.join(RUNTIME, "sudoclaude-type")
 CONFIG = os.path.expanduser("~/.config/sudoclaude/config.json")
 
 DEFAULTS = {
@@ -118,6 +120,12 @@ class Assistant:
         self.ring = collections.deque(maxlen=int(3.0 / CHUNK_S))
         self.shown = False
         self.t_ask = 0.0
+        self.phase = ""
+        self.manual = threading.Event()
+        self.barge = threading.Event()
+        self.typing = threading.Event()
+        self.typed = queue.Queue()
+        self.space_hook = False
 
         sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
         from sudoclaude.compositor import detect
@@ -126,7 +134,8 @@ class Assistant:
             self.comp = detect()
         except Exception:
             self.comp = None
-        self.overlay = Overlay(on_stop=self.on_overlay_stop, comp=self.comp)
+        self.overlay = Overlay(on_stop=self.on_overlay_stop, comp=self.comp,
+                               on_event=self.on_overlay_event)
 
         log("loading models")
         self.vad = Vad()
@@ -157,6 +166,8 @@ class Assistant:
     # overlay -----------------------------------------------------------------
 
     def ui(self, **msg):
+        if "voice" in msg:
+            self.phase = msg["voice"]
         try:
             self.overlay.send(**msg)
         except Exception:
@@ -175,6 +186,23 @@ class Assistant:
             or bool(a.get("tearingHint"))
         return {"mode": "corner" if flow else "full", "screen": mons.get(a.get("monitor"), ""),
                 "content": a.get("contentType") or ("game" if a.get("tearingHint") else "")}
+
+    def on_overlay_event(self, m):
+        if m.get("event") == "typed":
+            self.typed.put(m.get("text") or "")
+
+    def on_key(self, *_):
+        """Super+Space: start talking, end the turn while it's listening, or cut
+        in while Claude is answering."""
+        if self.phase == "listening":
+            log("key: done listening")
+            self.cancel.set()
+        elif self.phase in ("thinking", "speaking"):
+            log("key: interrupt")
+            self.barge.set()
+        else:
+            log("key: listen")
+            self.manual.set()
 
     def on_overlay_stop(self):
         log("stop pressed")
@@ -270,13 +298,70 @@ class Assistant:
                 threading.Thread(target=partial, daemon=True).start()
 
         return ep.capture(self.read, prefix=prefix, on_chunk=on_chunk,
-                          abort=self.cancel.is_set)
+                          abort=lambda: self.cancel.is_set() or self.typing.is_set()
+                          or self.check_typing())
+
+    # typing ------------------------------------------------------------------
+
+    def check_typing(self):
+        if not self.space_hook or not os.path.exists(TYPE_FLAG):
+            return False
+        try:
+            os.unlink(TYPE_FLAG)
+        except OSError:
+            pass
+        log("typing instead of talking")
+        self.typing.set()
+        self.ui(typing=True, status="Ask Claude", transcript="", level=0)
+        return True
+
+    def listen(self, **kw):
+        """Capture speech, or if a double-tap of Space switched to typing, wait
+        for what gets typed. Returns (audio, text) or None."""
+        try:
+            os.unlink(TYPE_FLAG)
+        except OSError:
+            pass
+        got = self.capture(**kw)
+        if not self.typing.is_set():
+            return got
+        while not self.typed.empty():
+            self.typed.get_nowait()
+        text = None
+        deadline = time.time() + 300
+        while text is None and time.time() < deadline and not self.cancel.is_set() \
+                and not self.stopped.is_set():
+            try:
+                text = self.typed.get(timeout=0.2)
+            except queue.Empty:
+                pass
+        self.typing.clear()
+        self.ui(typing=False)
+        self.mic.drain()
+        text = (text or "").strip()
+        return (None, text) if text else None
+
+    def hook_space(self, on):
+        c = self.comp
+        if not c or getattr(c, "name", "") != "hyprland" or on == self.space_hook:
+            return
+        try:
+            if on:
+                c.space_listen(TYPE_FLAG)
+            else:
+                c.space_unlisten()
+            self.space_hook = on
+        except Exception as e:
+            log("space hook:", repr(e))
 
     def idle(self):
         for w in self.wakes:
             w.reset()
         self.mic.drain()
         while not self.stopped.is_set():
+            if self.manual.is_set():
+                self.manual.clear()
+                return "manual"
             chunk = self.read()
             self.ring.append(chunk)
             now = time.time()
@@ -288,6 +373,14 @@ class Assistant:
 
     def engage(self, strong):
         self.cancel.clear()
+        if strong == "manual":
+            self.wake_ui()
+            got = self.listen(start_timeout=6.0)
+            cmd = strip_wake(got[1]) if got and got[1] else ""
+            if not cmd:
+                return self.finish()
+            log("heard:", repr(cmd))
+            return self.converse(cmd)
         prefix = self.utterance_prefix()
         if strong:
             # Check the words so far before lighting anything up: one quick pass
@@ -310,7 +403,7 @@ class Assistant:
         cmd = strip_wake(text)
         if not cmd or len(cmd) < 2:
             self.ui(voice="listening", status="Listening", transcript="")
-            got = self.capture(start_timeout=5.0)
+            got = self.listen(start_timeout=5.0)
             if not got or not got[1]:
                 return self.finish()
             cmd = strip_wake(got[1])
@@ -325,6 +418,8 @@ class Assistant:
         self.pick_voice(place)
         self.ui(voice="listening", status="Listening", transcript="", level=0,
                 **{k: v for k, v in place.items() if k != "content"})
+        # Double-tap Space to type instead, except over fullscreen apps and games.
+        self.hook_space(place.get("mode") != "corner")
 
     # talking -----------------------------------------------------------------
 
@@ -386,7 +481,7 @@ class Assistant:
             if "[end]" in reply.lower() or BYE.search(text):
                 return self.finish()
             self.ui(voice="listening", status="Listening", transcript="", level=0)
-            got = self.capture(start_timeout=self.cfg["followup_seconds"])
+            got = self.listen(start_timeout=self.cfg["followup_seconds"])
             if not got or not got[1].strip():
                 return self.finish()
             text, followup, interrupting = got[1].strip(), not has_wake(got[1]), False
@@ -399,6 +494,7 @@ class Assistant:
         for w in self.wakes:
             w.reset()
         self.mic.drain()
+        self.barge.clear()
         talk = 0.0
         while worker.is_alive() or self.mouth.busy:
             if self.cancel.is_set():
@@ -411,6 +507,14 @@ class Assistant:
             now = time.time()
             p = self.vad(chunk)
             _, hit = self.score(chunk, p, now)
+            if self.barge.is_set():
+                self.barge.clear()
+                self.mouth.stop()
+                self.agent.interrupt()
+                self.ui(voice="listening", status="Listening", transcript="", level=0)
+                got = self.listen(start_timeout=6.0)
+                worker.join(10)
+                return (got[1] if got else "") or "stop"
             speaking = self.speaker.speaking
             talk = talk + CHUNK_S if (p > 0.7 and speaking) else max(0.0, talk - CHUNK_S / 2)
             if hit:
@@ -422,7 +526,7 @@ class Assistant:
                 said = strip_wake(got[1]) if got else ""
                 worker.join(10)
                 if not said:
-                    got = self.capture(start_timeout=5.0)
+                    got = self.listen(start_timeout=5.0)
                     said = strip_wake(got[1]) if got else ""
                 return said or "stop"
             if talk >= self.cfg["barge_in_seconds"]:
@@ -443,9 +547,12 @@ class Assistant:
 
     def finish(self, quiet=False):
         self.mouth.speaker.wait(abort=self.cancel.is_set)
+        self.hook_space(False)
+        self.typing.clear()
         if self.shown:
-            self.ui(voice="", transcript="", level=0)
+            self.ui(voice="", transcript="", level=0, typing=False)
             self.shown = False
+        self.phase = ""
         self.ducker.restore()
         self.cancel.clear()
 
@@ -469,6 +576,7 @@ class Assistant:
                 time.sleep(0.5)
 
     def shutdown(self, *_):
+        self.hook_space(False)
         self.stopped.set()
         self.mic.stop()
         self.mouth.stop()
@@ -499,4 +607,6 @@ def main():
     a = Assistant(cfg)
     signal.signal(signal.SIGTERM, lambda *x: (a.shutdown(), os._exit(0)))
     signal.signal(signal.SIGINT, lambda *x: (a.shutdown(), os._exit(0)))
+    signal.signal(signal.SIGUSR1, a.on_key)
+    signal.signal(signal.SIGUSR2, lambda *x: a.on_overlay_stop())
     a.run()
