@@ -1019,6 +1019,9 @@ class Desktop:
             combos = ["Return" if ch == "\n" else "Tab" if ch == "\t" else
                       ("space" if ch == " " else ch) for ch in text]
             self._key_background([self.parse_combo(k) for k in combos], w["id"], 1)
+            # The app drains these asynchronously; let it catch up so a following
+            # Return doesn't overtake the text.
+            time.sleep(min(0.6, 0.12 + 0.01 * len(text)))
             return f"typed into {w['app']} in the background:"
         if not self.wl_copy:
             raise RuntimeError("wl-clipboard not installed; background paste needs it")
@@ -1029,6 +1032,7 @@ class Desktop:
             self._key_background([self.parse_combo(keys)], w["id"], 1)
         finally:
             self._clipboard_restore(old)
+        time.sleep(0.15)
         return f"pasted into {w['app']} in the background:"
 
     def type(self, text, delay_ms=2, method="auto", paste_keys="ctrl+v", window=None):
@@ -1242,12 +1246,13 @@ class Desktop:
                 log("see: no tree:", e)
         if tree_n < 4 and self.tesseract:
             n = 0
+            q = (query or "").lower()
             for words in ocr_lines(img).values():
                 good = [x for x in words if x[5] > 45]
                 if not good:
                     continue
                 textl = " ".join(x[0] for x in good).strip()
-                if len(textl) < 2:
+                if len(textl) < 2 or (q and q not in textl.lower()):
                     continue
                 x0 = min(x[1] for x in good); y0 = min(x[2] for x in good)
                 x1 = max(x[1] + x[3] for x in good); y1 = max(x[2] + x[4] for x in good)
