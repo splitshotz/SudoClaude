@@ -12,10 +12,25 @@ Item {
     property string at: "bottom"
     property real margin: 22
     property Item backdrop: null
-    // Brightness around the pill; readings come in a couple of times a second and
-    // this eases between them so the glass never snaps from dark to light.
+    // Brightness around the pill: readings arrive a couple of times a second as
+    // "mean darkest brightest". The glass goes light past 0.6 and back to dark
+    // under 0.45, so a mixed background doesn't make it flicker, and every
+    // change eases instead of snapping.
     property real lum: 0.1
-    Behavior on lum { NumberAnimation { duration: 550; easing.type: Easing.InOutQuad } }
+    property real lumLo: 0.1
+    property real lumHi: 0.1
+    property bool lightGlass: false
+    property real mode: lightGlass ? 1 : 0
+    Behavior on lumLo { NumberAnimation { duration: 450; easing.type: Easing.InOutQuad } }
+    Behavior on lumHi { NumberAnimation { duration: 450; easing.type: Easing.InOutQuad } }
+    Behavior on mode { NumberAnimation { duration: 380; easing.type: Easing.InOutQuad } }
+    function reading(text) {
+        const v = text.trim().split(/\s+/).map(parseFloat)
+        if (v.length < 3 || v.some(isNaN)) return
+        lum = v[0]; lumLo = v[1]; lumHi = v[2]
+        if (!lightGlass && lum > 0.6) lightGlass = true
+        else if (lightGlass && lum < 0.45) lightGlass = false
+    }
     // Space taken by bars on each side: [left, top, right, bottom].
     property var insets: [0, 0, 0, 0]
     signal moved(string at)
@@ -133,7 +148,9 @@ Item {
         // Glass shows up by its lens growing in, not just a fade.
         appear: fade
         backdrop: stage.backdrop
-        lum: stage.lum
+        mode: stage.mode
+        bLo: stage.lumLo
+        bHi: stage.lumHi
         onStopRequested: stage.stopRequested()
         onTyped: t => stage.typed(t)
         opacity: stage.capturing ? 0 : fade

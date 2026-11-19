@@ -216,10 +216,7 @@ ShellRoot {
             Process {
                 id: lumProbe
                 stdout: StdioCollector {
-                    onStreamFinished: {
-                        const v = parseFloat(text)
-                        if (!isNaN(v)) stage.lum = v
-                    }
+                    onStreamFinished: stage.reading(text)
                 }
             }
             Timer {

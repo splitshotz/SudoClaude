@@ -13,9 +13,9 @@ layout(std140, binding = 0) uniform buf {
     vec2 lightDir;
     vec4 tint;
     vec4 lightTint;
-    float lo;
-    float hi;
-    float lum;
+    float mode;
+    float bLo;
+    float bHi;
 };
 layout(binding = 1) uniform sampler2D backdropTex;
 
@@ -59,27 +59,32 @@ void main() {
     col /= 10.0;
     float a = pow(1.0 - t, 1.4) * 0.9 * inside;
 
-    // A faint dark line right on the edge for separation, and glints where the
-    // rounded ends face the light.
+    // Edge: a crisp bright line all the way round (brighter where it faces the
+    // light, with a weaker bounce opposite), sitting on a faint dark line.
     float lip = exp(-depth / 0.8);
-    float dark = lip * 0.30 * inside;
+    float line = smoothstep(1.6, 0.4, depth) * inside;
     vec2 L = normalize(lightDir);
-    float glint = lip * inside * (0.55 * pow(max(dot(n, L), 0.0), 10.0)
-                                + 0.30 * pow(max(dot(n, -L), 0.0), 10.0));
+    float face = dot(n, L);
+    float rim = line * (0.16 + 0.42 * pow(max(face, 0.0), 3.0) + 0.22 * pow(max(-face, 0.0), 3.0));
+    float dark = smoothstep(3.2, 1.4, depth) * (1.0 - line) * inside * 0.22;
 
-    // Dark glass over dark content, light glass over bright content, blended by
-    // a smoothed brightness reading so it never snaps. Mid-tones get the most
-    // tint, where light labels and dark labels both struggle.
-    float k = smoothstep(lo, hi, lum);
-    vec3 tc = mix(tint.rgb, lightTint.rgb, k);
-    float mid = 1.0 - abs(2.0 * clamp((lum - lo) / (hi - lo), 0.0, 1.0) - 1.0);
-    float ta = (mix(tint.a, lightTint.a, k) + 0.14 * mid) * inside;
-    dark *= 1.0 - 0.6 * k;
+    // Tint so labels always keep their contrast. Dark glass sizes itself
+    // against the brightest things around the pill so white labels stay
+    // readable over a bright patch; light glass sizes itself against the darkest
+    // so dark labels do. mode crossfades between the two.
+    float Ld = dot(tint.rgb, vec3(0.2126, 0.7152, 0.0722));
+    float Ll = dot(lightTint.rgb, vec3(0.2126, 0.7152, 0.0722));
+    float darkA = clamp((bHi - 0.26) / max(bHi - Ld, 1e-3), tint.a, 0.86);
+    float lightA = clamp((0.84 - bLo) / max(Ll - bLo, 1e-3), lightTint.a, 0.9);
+    vec3 tc = mix(tint.rgb, lightTint.rgb, mode);
+    float ta = mix(darkA, lightA, mode) * inside;
+    dark *= 1.0 - 0.7 * mode;
+
     vec3 rgb = col * a * (1.0 - dark);
     float alpha = a + dark * (1.0 - a);
     rgb = rgb * (1.0 - ta) + tc * ta;
     alpha = alpha + ta * (1.0 - alpha);
-    rgb += vec3(glint);
-    alpha = min(1.0, alpha + glint);
+    rgb = rgb + vec3(rim) * (1.0 - rgb);
+    alpha = min(1.0, alpha + rim * (1.0 - alpha));
     fragColor = vec4(rgb, alpha) * strength * qt_Opacity;
 }

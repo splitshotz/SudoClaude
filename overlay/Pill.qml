@@ -31,13 +31,13 @@ Item {
     function c(key, fallback) { return pal && pal[key] ? pal[key] : fallback }
     readonly property color accent: "#D97757"
     readonly property color surface: c("surface_container_highest", "#343536")
-    // Brightness around the pill (0 to 1, already smoothed). Over bright content
-    // the glass turns light and the labels go dark, the way Apple's small glass
-    // controls do; in between it blends.
-    property real lum: 0.1
-    readonly property real light: glass.visible && !solid
-        ? Math.max(0, Math.min(1, (lum - glass.lo) / (glass.hi - glass.lo))) : 0
-    readonly property real lightEased: light * light * (3 - 2 * light)
+    // Light glass with dark labels over bright content, dark glass with light
+    // labels otherwise, like Apple's small glass controls. `mode` crossfades
+    // between them; bLo/bHi are the darkest and brightest things around.
+    property real mode: 0
+    property real bLo: 0.1
+    property real bHi: 0.1
+    readonly property real lightEased: glass.visible && !solid ? mode * mode * (3 - 2 * mode) : 0
     function blend(a, b, t) {
         const x = Qt.lighter(a, 1.0), y = Qt.lighter(b, 1.0)
         return Qt.rgba(x.r + (y.r - x.r) * t, x.g + (y.g - x.g) * t,
@@ -64,9 +64,11 @@ Item {
         band: (pill.lifted ? 11 : 8) * pill.appear
         Behavior on band { NumberAnimation { duration: 180 } }
         tilt: pill.tilt
-        lum: pill.lum
+        mode: pill.mode
+        bLo: pill.bLo
+        bHi: pill.bHi
         tintColor: pill.surface
-        tintAlpha: pill.lifted ? 0.38 : 0.3
+        tintAlpha: pill.lifted ? 0.4 : 0.32
         Behavior on tintAlpha { NumberAnimation { duration: 160 } }
     }
     // Without a live backdrop (or when a solid pill is wanted) a plain tint
