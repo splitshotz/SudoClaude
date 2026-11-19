@@ -105,6 +105,7 @@ class Desktop:
         self.comp = compositor.detect()
         self.policy = Policy(self.comp)
         self.overlay = Overlay(on_stop=self.policy.abort_now, comp=self.comp)
+        self.policy.quiet = self.overlay.available and self.policy.cfg.get("overlay", True)
         self.policy.on_activate.append(self._on_activate)
         self.policy.on_deactivate.append(self._on_deactivate)
         self.labels = KeybindLabels()

@@ -79,6 +79,7 @@ class Assistant:
         self.stopped = threading.Event()
         self.cancel = threading.Event()
         self.ring = collections.deque(maxlen=int(3.0 / CHUNK_S))
+        self.shown = False
 
         sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
         from sudoclaude.compositor import detect
@@ -240,16 +241,21 @@ class Assistant:
             now = time.time()
             p = self.vad(chunk)
             score, hit = self.score(chunk, p, now)
-            if hit:
-                return True
-            if score >= self.cfg["wake_soft"]:
-                return False
+            if hit or score >= self.cfg["wake_soft"]:
+                log(f"wake candidate {score:.2f}" + (" strong" if hit else ""))
+                return hit
 
     def engage(self, strong):
         self.cancel.clear()
+        prefix = self.utterance_prefix()
         if strong:
-            self.wake_ui()
-        got = self.capture(prefix=self.utterance_prefix(), live=strong)
+            # Check the words so far before lighting anything up: one quick pass
+            # over a second or two of audio, so a false fire stays invisible.
+            heard = self.stt(np.concatenate(prefix)) if prefix else ""
+            strong = has_wake(heard) or bool(re.search(r"\b(claude|claud)\W*$", heard, re.I))
+            if strong:
+                self.wake_ui()
+        got = self.capture(prefix=prefix, live=strong)
         if got is None:
             return self.finish(quiet=True)
         audio, text = got
@@ -270,6 +276,7 @@ class Assistant:
         self.converse(cmd)
 
     def wake_ui(self):
+        self.shown = True
         self.ducker.duck()
         if self.cfg.get("chime"):
             self.speaker.say(chime())
@@ -360,7 +367,9 @@ class Assistant:
 
     def finish(self, quiet=False):
         self.mouth.speaker.wait(abort=self.cancel.is_set)
-        self.ui(voice="", transcript="", level=0)
+        if self.shown:
+            self.ui(voice="", transcript="", level=0)
+            self.shown = False
         self.ducker.restore()
         self.cancel.clear()
 
