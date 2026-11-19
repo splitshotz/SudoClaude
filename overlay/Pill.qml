@@ -35,6 +35,7 @@ Item {
     // labels otherwise, like Apple's small glass controls. `mode` crossfades
     // between them.
     property real mode: 0
+    property real surround: 0.1
     readonly property real lightEased: !solid ? mode * mode * (3 - 2 * mode) : 0
     function blend(a, b, t) {
         const x = Qt.lighter(a, 1.0), y = Qt.lighter(b, 1.0)
@@ -63,6 +64,7 @@ Item {
         Behavior on band { NumberAnimation { duration: 180 } }
         tilt: pill.tilt
         mode: pill.mode
+        surround: pill.surround
         tintColor: pill.surface
     }
     Rectangle {
