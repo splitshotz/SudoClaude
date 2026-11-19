@@ -9,11 +9,56 @@ def _runtime():
     return os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
 
 
+def lua_str(v):
+    v = str(v)
+    eq = "=="
+    while f"]{eq}]" in v:
+        eq += "="
+    return f"[{eq}[{v}]{eq}]"
+
+
+def lua_value(v):
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, (int, float)):
+        return repr(v)
+    if isinstance(v, dict):
+        return "{" + ", ".join(f"{k} = {lua_value(x)}" for k, x in v.items()) + "}"
+    return lua_str(v)
+
+
 class Hyprland:
     name = "hyprland"
 
     def __init__(self):
         self.sock_path = self._find()
+        self._lua = None
+
+    @property
+    def signature(self):
+        return os.path.basename(os.path.dirname(self.sock_path))
+
+    @property
+    def lua(self):
+        if self._lua is None:
+            r = self._req("dispatch __sudoclaude_probe__")
+            self._lua = "hl.dispatch" in r or "lua" in r.lower()
+        return self._lua
+
+    def eval(self, code):
+        r = self._req("eval " + code).strip()
+        if r != "ok":
+            raise RuntimeError(f"hyprland: {r}")
+        return r
+
+    def repl(self, code):
+        return self._req("repl " + code).strip()
+
+    def _dsp(self, expr):
+        return self.eval(f"hl.dispatch({expr})")
+
+    def _sel(self, addr):
+        return lua_str(addr if addr.startswith("address:") else f"address:{addr}")
 
     @staticmethod
     def _find():
@@ -77,6 +122,9 @@ class Hyprland:
                 "pid": c.get("pid"), "hidden": c.get("hidden", False),
                 "xwayland": c.get("xwayland", False),
                 "focus_order": c.get("focusHistoryID", 99),
+                "content": c.get("contentType", "none"),
+                "inhibiting_idle": c.get("inhibitingIdle", False),
+                "tearing": c.get("tearingHint", False),
                 "focused": c["address"] == active.get("address"),
             })
         return out
@@ -177,7 +225,106 @@ class Hyprland:
         return state
 
     def send_shortcut(self, mods, key, window_id):
+        if self.lua:
+            return self._dsp(f"hl.dsp.send_shortcut({{mods = {lua_str(mods)}, key = "
+                             f"{lua_str(key)}, window = {self._sel(window_id)}}})")
         return self.dispatch("sendshortcut", f"{mods}, {key}, address:{window_id}")
+
+    def switch_workspace(self, target):
+        if self.lua:
+            return self._dsp(f"hl.dsp.focus({{workspace = {lua_str(target)}}})")
+        return self.dispatch("workspace", target)
+
+    def move_to_workspace(self, target, silent=False, window_id=None):
+        if self.lua:
+            win = f", window = {self._sel(window_id)}" if window_id else ""
+            return self._dsp(f"hl.dsp.window.move({{workspace = {lua_str(target)}, follow = "
+                             f"{'false' if silent else 'true'}{win}}})")
+        arg = target + (f",address:{window_id}" if window_id else "")
+        return self.dispatch("movetoworkspacesilent" if silent else "movetoworkspace", arg)
+
+    def toggle_special(self, name=""):
+        if self.lua:
+            return self._dsp(f"hl.dsp.workspace.toggle_special({lua_str(name)})")
+        return self.dispatch("togglespecialworkspace", name)
+
+    def close_window(self, window_id):
+        if self.lua:
+            return self._dsp(f"hl.dsp.window.close({{window = {self._sel(window_id)}}})")
+        return self.dispatch("closewindow", f"address:{window_id}")
+
+    def set_prop(self, window_id, prop, value):
+        if self.lua:
+            return self._dsp(f"hl.dsp.window.set_prop({{prop = {lua_str(prop)}, value = "
+                             f"{lua_str(value)}, window = {self._sel(window_id)}}})")
+        return self.dispatch("setprop", f"address:{window_id} {prop} {value}")
+
+    def run(self, command):
+        """Raw dispatcher: Lua (hl.dsp...) on 0.54+, legacy words otherwise."""
+        command = command.strip()
+        if not self.lua:
+            return self.dispatch(command)
+        if command.startswith("hl.dsp."):
+            return self._dsp(command)
+        if command.startswith("hl."):
+            return self.eval(command)
+        word, _, arg = command.partition(" ")
+        arg = arg.strip()
+        legacy = {
+            "workspace": lambda: self.switch_workspace(arg),
+            "movetoworkspace": lambda: self.move_to_workspace(arg),
+            "movetoworkspacesilent": lambda: self.move_to_workspace(arg, True),
+            "togglespecialworkspace": lambda: self.toggle_special(arg),
+            "killactive": lambda: self._dsp("hl.dsp.window.close()"),
+            "togglefloating": lambda: self._dsp('hl.dsp.window.float({action = "toggle"})'),
+            "fullscreen": lambda: self._dsp('hl.dsp.window.fullscreen({mode = "fullscreen"})'),
+            "exec": lambda: self.launch(arg),
+        }
+        if word in legacy:
+            return legacy[word]()
+        raise RuntimeError("Hyprland 0.54+ uses Lua dispatchers, e.g. "
+                           "'hl.dsp.window.fullscreen()' or 'hl.dsp.focus({workspace = \"3\"})'")
+
+    def overlay_rules(self):
+        rules = [{"name": "sudoclaude-overlay", "match": {"namespace": "^claude-computer-use$"},
+                  "no_screen_share": True, "no_anim": True},
+                 {"name": "sudoclaude-glass", "match": {"namespace": "^claude-cu-glass$"},
+                  "no_screen_share": True, "no_anim": True, "blur": True,
+                  "ignore_alpha": 0.05}]
+        if self.lua:
+            for r in rules:
+                try:
+                    self.eval(f"hl.layer_rule({lua_value(r)})")
+                except Exception:
+                    pass
+            return True
+        for rule in ("noanim, claude-computer-use", "noanim, claude-cu-glass",
+                     "blur, claude-cu-glass", "ignorealpha 0.05, claude-cu-glass"):
+            try:
+                self.raw("keyword layerrule " + rule)
+            except Exception:
+                pass
+        return False
+
+    def esc_listen(self, path):
+        if self.lua:
+            self.eval("if _G.__sudoclaude_esc then _G.__sudoclaude_esc:remove() end "
+                      "_G.__sudoclaude_esc = hl.on(\"input.keyboard.key\", function(code, t, state) "
+                      f"if code == 9 and state == 1 then local f = io.open({lua_str(path)}, "
+                      "\"w\") if f then f:close() end end end)")
+            return
+        if not any(path in (b.get("arg") or "") for b in self.j("binds")):
+            self.raw(f"keyword bindn , Escape, exec, touch {path}")
+
+    def esc_unlisten(self, path):
+        if self.lua:
+            self.eval("if _G.__sudoclaude_esc then _G.__sudoclaude_esc:remove() "
+                      "_G.__sudoclaude_esc = nil end")
+            return
+        users = [b for b in self.j("binds") if b.get("key") == "Escape"
+                 and not b.get("modmask") and path not in (b.get("arg") or "")]
+        if not users:
+            self.raw("keyword unbind , Escape")
 
     def active_window(self):
         w = self.j("activewindow") or {}
@@ -208,9 +355,22 @@ class Hyprland:
         return r
 
     def focus_window(self, wid):
+        if self.lua:
+            return self._dsp(f"hl.dsp.focus({{window = {self._sel(wid)}}})")
         return self.dispatch("focuswindow", f"address:{wid}")
 
-    def launch(self, cmd):
+    def launch(self, cmd, rules=None):
+        if self.lua:
+            extra = f", {lua_value(rules)}" if rules else ""
+            return self._dsp(f"hl.dsp.exec_cmd({lua_str(cmd)}{extra})")
+        if rules:
+            parts = []
+            for k, v in rules.items():
+                if k == "workspace":
+                    parts.append(f"workspace {v}")
+                elif v is True:
+                    parts.append(k.replace("_", ""))
+            cmd = f"[{'; '.join(parts)}] {cmd}"
         return self.dispatch("exec", cmd)
 
     def raw(self, cmd):
@@ -306,10 +466,43 @@ class Sway:
             raise RuntimeError(f"sway command failed: {r}")
         return "ok"
 
+    lua = False
+
     def focus_window(self, wid):
         return self.dispatch(f"[con_id={wid}]", "focus")
 
-    def launch(self, cmd):
+    def switch_workspace(self, target):
+        return self.dispatch("workspace", target)
+
+    def move_to_workspace(self, target, silent=False, window_id=None):
+        sel = f"[con_id={window_id}] " if window_id else ""
+        return self.dispatch(f"{sel}move container to workspace {target}")
+
+    def toggle_special(self, name=""):
+        return self.dispatch("scratchpad show")
+
+    def close_window(self, window_id):
+        return self.dispatch(f"[con_id={window_id}]", "kill")
+
+    def set_prop(self, window_id, prop, value):
+        return "ok"
+
+    def run(self, command):
+        return self.dispatch(command)
+
+    def overlay_rules(self):
+        return False
+
+    def esc_listen(self, path):
+        pass
+
+    def esc_unlisten(self, path):
+        pass
+
+    def launch(self, cmd, rules=None):
+        if rules and rules.get("workspace"):
+            ws = str(rules["workspace"]).split()[0]
+            return self.dispatch(f"workspace {ws}; exec {cmd}; workspace back_and_forth")
         return self.dispatch("exec", cmd)
 
     def raw(self, cmd):

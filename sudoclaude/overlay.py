@@ -41,13 +41,11 @@ class Overlay:
             self.proc = subprocess.Popen([self.bin, "-p", QML], env=env,
                                          stdout=self.log, stderr=subprocess.STDOUT,
                                          start_new_session=True)
-            if self.comp and self.comp.name == "hyprland":
-                for rule in ("noanim, claude-computer-use", "noanim, claude-cu-glass",
-                             "blur, claude-cu-glass", "ignorealpha 0.05, claude-cu-glass"):
-                    try:
-                        self.comp.raw("keyword layerrule " + rule)
-                    except Exception:
-                        pass
+            if self.comp:
+                try:
+                    self.comp.overlay_rules()
+                except Exception:
+                    pass
             deadline = time.time() + 6
             while time.time() < deadline:
                 if self.proc.poll() is not None:
