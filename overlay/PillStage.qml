@@ -52,10 +52,13 @@ Item {
         const s = spot(spots.indexOf(at) >= 0 ? at : "bottom")
         px = s.x; py = s.y; fx = s.fx; fy = s.fy
     }
+    // Geometry changes jump straight to the spot; only moves between spots spring.
+    function snap() { const r = ready; ready = false; settle(); ready = r }
     onAtChanged: settle()
-    onWidthChanged: settle()
-    onHeightChanged: settle()
-    onInsetsChanged: settle()
+    onWidthChanged: snap()
+    onHeightChanged: snap()
+    onInsetsChanged: snap()
+    onOnChanged: if (on && !grab.moving) snap()
     Component.onCompleted: { settle(); ready = true }
 
     // Hit area under the pill: only the stop button sits above it.

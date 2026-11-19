@@ -169,7 +169,11 @@ ShellRoot {
             required property var modelData
             screen: modelData
             readonly property bool here: shell.focusScreen === "" || shell.focusScreen === modelData.name
-            visible: here && shell.mode !== "corner" && (shell.present || stage.pill.opacity > 0.01)
+            // Stays mapped for the life of the overlay. Unmapping it while a captured
+            // frame was in flight crashed Quickshell, and remapping started it at
+            // zero width so the pill slid in from the left. When the pill is down
+            // the window is empty and takes no input at all.
+            visible: true
             // The whole screen, so the pill can be thrown anywhere (its spots keep
             // clear of bars). Only the pill takes input; everything else clicks
             // straight through.
@@ -180,7 +184,9 @@ ShellRoot {
             WlrLayershell.namespace: "claude-cu-glass"
             WlrLayershell.keyboardFocus: shell.typing && here ? WlrKeyboardFocus.Exclusive
                                                                : WlrKeyboardFocus.None
-            mask: Region { item: stage.pill }
+            property Region pillRegion: Region { item: stage.pill }
+            property Region noRegion: Region {}
+            mask: stage.on ? pillRegion : noRegion
 
             readonly property var reserved: {
                 const m = Hyprland.monitorFor(modelData)
@@ -189,18 +195,13 @@ ShellRoot {
             }
             Component.onCompleted: Hyprland.refreshMonitors()
 
-            // What's behind the pill, for the glass edge to bend. Sampled at about
-            // 30 fps and only while the pill is up.
+            // What's behind the pill, for the glass edge to bend: one live stream
+            // while the pill is up, nothing otherwise.
             ScreencopyView {
                 id: behind
                 anchors.fill: parent
-                captureSource: stage.on && !shell.capturing ? pillWin.modelData : null
-            }
-            Timer {
-                interval: 33
-                repeat: true
-                running: stage.on && !shell.capturing && pillWin.visible
-                onTriggered: behind.captureFrame()
+                captureSource: pillWin.modelData
+                live: stage.on && !shell.capturing
             }
 
             PillStage {
@@ -208,7 +209,8 @@ ShellRoot {
                 anchors.fill: parent
                 backdrop: behind
                 insets: pillWin.reserved
-                on: shell.present && shell.mode !== "corner"
+                on: pillWin.here && shell.present && shell.mode !== "corner"
+                visible: on || pill.opacity > 0.01
                 capturing: shell.capturing
                 at: shell.pillAt
                 onMoved: at => shell.savePill(at)
