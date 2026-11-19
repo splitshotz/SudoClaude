@@ -265,6 +265,13 @@ class VirtualPointer:
         self.c._send(self.id, 4)
         self.x, self.y = rx + bx, ry + by
 
+    def move_rel(self, dx, dy):
+        self.c._send(self.id, 0, u32(_now_ms()) + fixed(dx) + fixed(dy))
+        self.c._send(self.id, 4)
+        if self.x is not None:
+            self.x += dx
+            self.y += dy
+
     def button(self, name, pressed):
         code = BUTTONS[name] if isinstance(name, str) else int(name)
         self.c._send(self.id, 2, u32(_now_ms()) + u32(code) + u32(1 if pressed else 0))

@@ -16,16 +16,21 @@ The script installs what's missing with pacman, adds the server to `~/.config/Cl
 
 ## What it can do
 
-The basics are all here: screenshots, clicking, dragging, scrolling, typing (any unicode), key combos, holding keys, and zooming in on part of the screen at full resolution. On top of that:
+Anything you'd do with a mouse and keyboard. That includes every kind of click, click and hold, pressing and releasing any mouse button, drags, smooth paths through several points, relative mouse movement for games, scrolling in any direction, typing any unicode, any key combo (raw keycodes too), and holding keys down across other actions, like holding W while moving the mouse.
 
-- `open_application` opens anything with a .desktop entry by name, or focuses it if it's already running, and waits for the window
-- `accessibility_tree` and `a11y_action` read an app's real UI through AT-SPI (buttons, fields, menus, tabs, with their labels and positions) and can press, fill in or toggle things without touching the mouse
-- `screenshot` with a window grabs just that window, even if it's on another workspace or covered up
-- `key` with a window sends shortcuts to a window in the background
-- `desktop_state`, `workspace` and `focus_window` know about workspaces, special workspaces and the bar
-- `keybinds` lists my live Hyprland binds with the same descriptions and sections the Super+/ cheatsheet shows, read straight from the config comments, so if I change a bind it picks that up
-- `batch` runs a whole sequence of actions and comes back with one screenshot
-- `find_text` uses OCR to find a label on screen when an app has no accessibility tree
+There are five tools:
+
+- `computer` covers the screen, mouse and keyboard. It uses the same action names as Claude's own computer use, and it takes a whole list of actions at once, so Claude can plan a sequence of moves and run it in one go instead of checking after every step.
+- `open_application` opens anything with a .desktop entry by name, or focuses it if it's already running, and waits for the window.
+- `desktop` handles Hyprland: workspaces (special ones too), windows, monitors, launching commands, the clipboard, and my keybinds with the same labels the Super+/ cheatsheet shows. Those come from the live config, so if I change a bind it picks that up.
+- `ui` reads an app's real interface through AT-SPI (buttons, fields, menus, tabs with their labels and positions) and can press, fill in or toggle things without touching the mouse. It also has OCR for apps that don't expose anything.
+- `access` is for the few sensitive apps that need a yes from me first.
+
+Screenshots can also grab a single window, even one on another workspace or under other windows, and shortcuts can go to a window in the background.
+
+## Keeping usage down
+
+Screenshots are what eat into usage, so there are three sizes. On my ultrawide that's roughly 500, 900 and 1,400 tokens. After an action Claude can ask for a `diff` instead of an image, which is a line of text saying whether the screen changed and where, and then zoom into just that part if it needs to. The accessibility tree and window lists are plain text and usually cheaper than looking. The tool definitions themselves come to about 1,700 tokens.
 
 ## How it works
 
