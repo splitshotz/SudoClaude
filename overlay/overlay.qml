@@ -170,11 +170,11 @@ ShellRoot {
             screen: modelData
             readonly property bool here: shell.focusScreen === "" || shell.focusScreen === modelData.name
             visible: here && shell.mode !== "corner" && (shell.present || stage.pill.opacity > 0.01)
-            // Whole screen minus the bar, so the pill can be thrown anywhere. Only
-            // the pill takes input; everything else clicks straight through.
+            // The whole screen, so the pill can be thrown anywhere (its spots keep
+            // clear of bars). Only the pill takes input; everything else clicks
+            // straight through.
             anchors { top: true; bottom: true; left: true; right: true }
-            exclusionMode: ExclusionMode.Normal
-            exclusiveZone: 0
+            exclusionMode: ExclusionMode.Ignore
             color: "transparent"
             WlrLayershell.layer: WlrLayer.Overlay
             WlrLayershell.namespace: "claude-cu-glass"
@@ -182,9 +182,32 @@ ShellRoot {
                                                                : WlrKeyboardFocus.None
             mask: Region { item: stage.pill }
 
+            readonly property var reserved: {
+                const m = Hyprland.monitorFor(modelData)
+                const r = m && m.lastIpcObject ? m.lastIpcObject.reserved : null
+                return r && r.length === 4 ? r : [0, 0, 0, 0]
+            }
+            Component.onCompleted: Hyprland.refreshMonitors()
+
+            // What's behind the pill, for the glass edge to bend. Sampled at about
+            // 30 fps and only while the pill is up.
+            ScreencopyView {
+                id: behind
+                anchors.fill: parent
+                captureSource: stage.on && !shell.capturing ? pillWin.modelData : null
+            }
+            Timer {
+                interval: 33
+                repeat: true
+                running: stage.on && !shell.capturing && pillWin.visible
+                onTriggered: behind.captureFrame()
+            }
+
             PillStage {
                 id: stage
                 anchors.fill: parent
+                backdrop: behind
+                insets: pillWin.reserved
                 on: shell.present && shell.mode !== "corner"
                 capturing: shell.capturing
                 at: shell.pillAt

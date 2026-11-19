@@ -11,6 +11,9 @@ Item {
     property bool capturing: false
     property string at: "bottom"
     property real margin: 22
+    property Item backdrop: null
+    // Space taken by bars on each side: [left, top, right, bottom].
+    property var insets: [0, 0, 0, 0]
     signal moved(string at)
     signal stopRequested()
     signal typed(string text)
@@ -21,9 +24,11 @@ Item {
     function spot(n) {
         const fx = n.indexOf("left") >= 0 ? 0 : n.indexOf("right") >= 0 ? 1 : 0.5
         const fy = n.indexOf("top") >= 0 ? 0 : n.indexOf("bottom") >= 0 ? 1 : 0.5
+        const l = insets[0] + margin, t = insets[1] + margin
+        const r = width - insets[2] - margin, b = height - insets[3] - margin
         return {
-            x: fx === 0 ? margin : fx === 1 ? width - margin : width / 2,
-            y: fy === 0 ? margin : fy === 1 ? height - margin : height / 2,
+            x: fx === 0 ? l : fx === 1 ? r : (l + r) / 2,
+            y: fy === 0 ? t : fy === 1 ? b : (t + b) / 2,
             fx: fx, fy: fy
         }
     }
@@ -35,6 +40,8 @@ Item {
     property real fx: 0.5
     property real fy: 1
     property bool ready: false
+    property real tilt: 0
+    Behavior on tilt { SpringAnimation { spring: 2.6; damping: 0.25; epsilon: 0.002 } }
     readonly property bool springy: ready && !grab.moving
     Behavior on px { enabled: stage.springy; SpringAnimation { spring: 3.2; damping: 0.3; epsilon: 0.25 } }
     Behavior on py { enabled: stage.springy; SpringAnimation { spring: 3.2; damping: 0.3; epsilon: 0.25 } }
@@ -48,6 +55,7 @@ Item {
     onAtChanged: settle()
     onWidthChanged: settle()
     onHeightChanged: settle()
+    onInsetsChanged: settle()
     Component.onCompleted: { settle(); ready = true }
 
     // Hit area under the pill: only the stop button sits above it.
@@ -77,6 +85,11 @@ Item {
             stage.py = p.y - oy
             const now = Date.now()
             trail = trail.concat([{ x: p.x, y: p.y, t: now }]).filter(s => now - s.t < 90)
+            if (trail.length > 1) {
+                const a = trail[0], b = trail[trail.length - 1]
+                const vx = (b.x - a.x) / Math.max(1, b.t - a.t)
+                stage.tilt = Math.max(-0.9, Math.min(0.9, vx * 0.35))
+            }
         }
         onReleased: {
             if (!moving) return
@@ -97,6 +110,7 @@ Item {
                 if (d < bd) { bd = d; best = n }
             }
             moving = false
+            stage.tilt = 0
             if (best === stage.at) stage.settle()
             else stage.at = best
             stage.moved(best)
@@ -108,6 +122,10 @@ Item {
         x: Math.round(stage.px - width * stage.fx)
         y: Math.round(stage.py - height * stage.fy)
         lifted: grab.moving
+        tilt: stage.tilt
+        // Glass shows up by its lens growing in, not just a fade.
+        appear: fade
+        backdrop: stage.backdrop
         onStopRequested: stage.stopRequested()
         onTyped: t => stage.typed(t)
         opacity: stage.capturing ? 0 : fade
