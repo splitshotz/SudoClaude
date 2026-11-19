@@ -31,11 +31,23 @@ Item {
     function c(key, fallback) { return pal && pal[key] ? pal[key] : fallback }
     readonly property color accent: "#D97757"
     readonly property color surface: c("surface_container_highest", "#343536")
-    readonly property color fg: c("on_surface", "#e4e2e3")
-    readonly property color fgDim: c("on_surface_variant", "#c8c6c7")
+    // Brightness around the pill (0 to 1, already smoothed). Over bright content
+    // the glass turns light and the labels go dark, the way Apple's small glass
+    // controls do; in between it blends.
+    property real lum: 0.1
+    readonly property real light: glass.visible && !solid
+        ? Math.max(0, Math.min(1, (lum - glass.lo) / (glass.hi - glass.lo))) : 0
+    readonly property real lightEased: light * light * (3 - 2 * light)
+    function blend(a, b, t) {
+        const x = Qt.lighter(a, 1.0), y = Qt.lighter(b, 1.0)
+        return Qt.rgba(x.r + (y.r - x.r) * t, x.g + (y.g - x.g) * t,
+                       x.b + (y.b - x.b) * t, x.a + (y.a - x.a) * t)
+    }
+    readonly property color fg: blend(c("on_surface", "#e4e2e3"), "#1c1b1d", lightEased)
+    readonly property color fgDim: blend(c("on_surface_variant", "#c8c6c7"), "#48474a", lightEased)
     readonly property color outline: c("outline_variant", "#474748")
-    readonly property color tonal: c("secondary_container", "#42474e")
-    readonly property color tonalFg: c("on_secondary_container", "#dee3eb")
+    readonly property color tonal: blend(c("secondary_container", "#42474e"), "#dcdde2", lightEased)
+    readonly property color tonalFg: blend(c("on_secondary_container", "#dee3eb"), "#1c1b1d", lightEased)
     readonly property string fontFamily: "Google Sans Flex"
     readonly property bool listening: voice === "listening"
 
@@ -52,6 +64,7 @@ Item {
         band: (pill.lifted ? 11 : 8) * pill.appear
         Behavior on band { NumberAnimation { duration: 180 } }
         tilt: pill.tilt
+        lum: pill.lum
         tintColor: pill.surface
         tintAlpha: pill.lifted ? 0.38 : 0.3
         Behavior on tintAlpha { NumberAnimation { duration: 160 } }
@@ -73,14 +86,6 @@ Item {
     Item {
         anchors.fill: parent
         clip: true
-        // Labels follow the glass between dark and light.
-        layer.enabled: glass.visible && !pill.solid
-        layer.effect: ShaderEffect {
-            property var lumTex: glass.lumTexture
-            property real lo: glass.lo
-            property real hi: glass.hi
-            fragmentShader: Qt.resolvedUrl("shaders/vibrant.frag.qsb")
-        }
 
         Row {
             id: row

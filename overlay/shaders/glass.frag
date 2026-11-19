@@ -15,9 +15,9 @@ layout(std140, binding = 0) uniform buf {
     vec4 lightTint;
     float lo;
     float hi;
+    float lum;
 };
 layout(binding = 1) uniform sampler2D backdropTex;
-layout(binding = 2) uniform sampler2D lumTex;
 
 float box(vec2 p, vec2 b, float r) {
     vec2 q = abs(p) - b + r;
@@ -70,7 +70,6 @@ void main() {
     // Dark glass over dark content, light glass over bright content, blended by
     // a smoothed brightness reading so it never snaps. Mid-tones get the most
     // tint, where light labels and dark labels both struggle.
-    float lum = texture(lumTex, vec2(0.5)).r;
     float k = smoothstep(lo, hi, lum);
     vec3 tc = mix(tint.rgb, lightTint.rgb, k);
     float mid = 1.0 - abs(2.0 * clamp((lum - lo) / (hi - lo), 0.0, 1.0) - 1.0);

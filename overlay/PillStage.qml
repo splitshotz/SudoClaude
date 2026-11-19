@@ -12,6 +12,10 @@ Item {
     property string at: "bottom"
     property real margin: 22
     property Item backdrop: null
+    // Brightness around the pill; readings come in a couple of times a second and
+    // this eases between them so the glass never snaps from dark to light.
+    property real lum: 0.1
+    Behavior on lum { NumberAnimation { duration: 550; easing.type: Easing.InOutQuad } }
     // Space taken by bars on each side: [left, top, right, bottom].
     property var insets: [0, 0, 0, 0]
     signal moved(string at)
@@ -129,6 +133,7 @@ Item {
         // Glass shows up by its lens growing in, not just a fade.
         appear: fade
         backdrop: stage.backdrop
+        lum: stage.lum
         onStopRequested: stage.stopRequested()
         onTyped: t => stage.typed(t)
         opacity: stage.capturing ? 0 : fade
