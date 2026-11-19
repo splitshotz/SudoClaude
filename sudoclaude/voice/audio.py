@@ -37,17 +37,37 @@ class Mic:
         self.q = queue.Queue(maxsize=400)
         self.proc = None
         self.level = 0.0
+        self.running = False
 
     def start(self):
         if self.target and self.target.startswith("file:"):
             threading.Thread(target=self._file, args=(self.target[5:],), daemon=True).start()
             return
-        cmd = ["parec", "--raw", "--format=float32le", f"--rate={RATE}", "--channels=1",
-               "--latency-msec=40", "--client-name=sudoclaude", "--stream-name=sudoclaude-listen"]
-        if self.target:
-            cmd.append(f"--device={self.target}")
-        self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-        threading.Thread(target=self._pump, daemon=True).start()
+        self.running = True
+        threading.Thread(target=self._keep, daemon=True).start()
+
+    def _keep(self):
+        """Keeps a recorder running; PipeWire restarts and device changes kill it."""
+        while self.running:
+            target = self.target
+            if target and target != "default":
+                for _ in range(20):
+                    names = subprocess.run(["pactl", "list", "short", "sources"],
+                                           capture_output=True, text=True).stdout
+                    if f"\t{target}\t" in names:
+                        break
+                    time.sleep(0.5)
+                else:
+                    target = pick_input(None)
+            cmd = ["parec", "--raw", "--format=float32le", f"--rate={RATE}", "--channels=1",
+                   "--latency-msec=40", "--client-name=sudoclaude",
+                   "--stream-name=sudoclaude-listen"]
+            if target:
+                cmd.append(f"--device={target}")
+            self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            self._pump()
+            if self.running:
+                time.sleep(1.0)
 
     def _pump(self):
         need = CHUNK * 4
@@ -108,6 +128,7 @@ class Mic:
                 break
 
     def stop(self):
+        self.running = False
         if self.proc:
             self.proc.terminate()
             self.proc = None
