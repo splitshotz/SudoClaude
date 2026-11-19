@@ -17,6 +17,7 @@ layout(std140, binding = 0) uniform buf {
     vec4 lightTint;   // light glass
     float mode;       // 0 dark, 1 light
     float hasBackdrop;
+    float surround;   // average brightness around the pill
 };
 layout(binding = 1) uniform sampler2D backdropTex;
 
@@ -72,20 +73,27 @@ void main() {
         float t = clamp(depth / band, 0.0, 1.0);
         float bend = pow(1.0 - t, 2.0);
         vec2 q = p * 0.95 + n * (16.0 * bend);
-        vec2 ca = n * (0.6 + 2.6 * bend);
+        vec2 ca = n * (0.4 + 1.6 * bend);
         vec3 c = vec3(frosted(q + ca).r, frosted(q).g, frosted(q - ca).b);
 
-        // Color comes through stronger, brightness is kept in a band the
-        // labels can be read on: dark glass caps the highlights, light glass
-        // lifts the shadows. Nothing is painted over it.
+        // Color comes through stronger and brightness is remapped into a
+        // narrow band that always sits apart from the surroundings: dark glass a
+        // step lighter than what's around it, light glass a step darker, so the
+        // pill reads as a piece of glass on the page and labels keep contrast.
+        // The content's own light and shade still show inside that band.
         float L = luma(c);
-        c = clamp(mix(vec3(L), c, 1.35), 0.0, 1.0);
+        c = clamp(mix(vec3(L), c, 1.2), 0.0, 1.0);
         L = luma(c);
-        float Ld = cap(L, 0.12, 0.30);
-        float Ll = 1.0 - cap(1.0 - L, 0.06, 0.19);
-        vec3 cd = L > 1e-3 ? c * (Ld / L) : vec3(Ld);
-        vec3 cl = L < 0.999 ? 1.0 - (1.0 - c) * ((1.0 - Ll) / (1.0 - L)) : vec3(Ll);
-        c = mix(clamp(cd, 0.0, 1.0), clamp(cl, 0.0, 1.0), mode);
+        float dLo = clamp(surround + 0.07, 0.10, 0.18);
+        float dHi = dLo + 0.2;
+        float lHi = clamp(surround - 0.08, 0.80, 0.90);
+        float lLo = lHi - 0.2;
+        float Ld = dLo + (dHi - dLo) * L;
+        float Ll = lLo + (lHi - lLo) * L;
+        // Shift brightness rather than scale it, so color keeps its real
+        // strength instead of being blown up on dark content.
+        float Lt = mix(Ld, Ll, mode);
+        c = clamp(c + (Lt - L), 0.0, 1.0);
         // A whisper of the glass's own tint ties it to the shell's palette.
         c = mix(c, mix(tint.rgb, lightTint.rgb, mode), 0.12);
         rgb = c * inside;

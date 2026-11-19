@@ -17,6 +17,7 @@ Item {
     // under 0.45, so a mixed background doesn't make it flicker, and every
     // change eases instead of snapping.
     property real lum: 0.1
+    Behavior on lum { NumberAnimation { duration: 450; easing.type: Easing.InOutQuad } }
     property real lumLo: 0.1
     property real lumHi: 0.1
     property bool lightGlass: false
@@ -28,8 +29,8 @@ Item {
         const v = text.trim().split(/\s+/).map(parseFloat)
         if (v.length < 3 || v.some(isNaN)) return
         lum = v[0]; lumLo = v[1]; lumHi = v[2]
-        if (!lightGlass && lum > 0.6) lightGlass = true
-        else if (lightGlass && lum < 0.45) lightGlass = false
+        if (!lightGlass && v[0] > 0.6) lightGlass = true
+        else if (lightGlass && v[0] < 0.45) lightGlass = false
     }
     // Space taken by bars on each side: [left, top, right, bottom].
     property var insets: [0, 0, 0, 0]
@@ -149,6 +150,7 @@ Item {
         appear: fade
         backdrop: stage.backdrop
         mode: stage.mode
+        surround: stage.lum
         onStopRequested: stage.stopRequested()
         onTyped: t => stage.typed(t)
         opacity: stage.capturing ? 0 : fade

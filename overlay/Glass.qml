@@ -21,6 +21,8 @@ ShaderEffect {
     property vector4d lightTint: Qt.vector4d(lightColor.r, lightColor.g, lightColor.b, 1)
     // 0 dark glass, 1 light glass; crossfades.
     property real mode: 0
+    // Average brightness around the pill, so the glass can sit a step apart from it.
+    property real surround: 0.1
     property real hasBackdrop: backdrop ? 1 : 0
 
     x: target ? -margin : 0
