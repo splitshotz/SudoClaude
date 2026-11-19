@@ -13,7 +13,7 @@ step "Python environment"
 [[ -x "$VENV/bin/python" ]] || uv venv --python 3.11 "$VENV"
 uv pip install --python "$VENV/bin/python" -q \
   numpy scipy soundfile onnxruntime "openwakeword>=0.6" "onnx-asr[cpu,hub]" \
-  kokoro-onnx espeakng-loader claude-agent-sdk huggingface_hub
+  kokoro-onnx espeakng-loader claude-agent-sdk huggingface_hub "setuptools<81"
 if [[ "${1:-}" != "--no-chatterbox" ]]; then
   step "Chatterbox voice (GPU)"
   uv pip install --python "$VENV/bin/python" -q chatterbox-tts || \

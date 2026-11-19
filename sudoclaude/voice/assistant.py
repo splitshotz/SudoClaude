@@ -107,7 +107,8 @@ class Assistant:
 
         from .agent import Agent
         self.agent = Agent(cfg, on_sentence=self.mouth.say, on_tool=self.on_tool, log=log)
-        self.mic = Mic(pick_input(cfg.get("input")))
+        test = os.environ.get("SUDOCLAUDE_VOICE_INPUT")
+        self.mic = Mic(test if test else pick_input(cfg.get("input")))
         log("input:", self.mic.target or "default")
 
     # overlay -----------------------------------------------------------------
