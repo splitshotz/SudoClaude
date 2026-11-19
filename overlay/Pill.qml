@@ -44,27 +44,43 @@ Item {
     height: implicitHeight
     width: implicitWidth
 
+    Glass {
+        id: glass
+        anchors.fill: parent
+        backdrop: pill.backdrop
+        target: pill
+        band: (pill.lifted ? 11 : 8) * pill.appear
+        Behavior on band { NumberAnimation { duration: 180 } }
+        tilt: pill.tilt
+        tintColor: pill.surface
+        tintAlpha: pill.lifted ? 0.38 : 0.3
+        Behavior on tintAlpha { NumberAnimation { duration: 160 } }
+    }
+    // Without a live backdrop (or when a solid pill is wanted) a plain tint
+    // does the job and the compositor blur shows through it.
     Rectangle {
+        visible: pill.backdrop === null || pill.solid
         anchors.fill: parent
         radius: height / 2
-        // Translucent: the compositor blurs whatever is behind it.
+        // One tint over both the blurred middle and the lens rim, so they read
+        // as the same piece of glass.
         color: Qt.rgba(pill.surface.r, pill.surface.g, pill.surface.b,
                        pill.solid ? 0.92 : pill.lifted ? 0.34 : 0.26)
         Behavior on color { ColorAnimation { duration: 160 } }
         border.width: 0
     }
-    Glass {
-        anchors.fill: parent
-        backdrop: pill.backdrop
-        target: pill
-        band: (pill.lifted ? 14 : 11) * pill.appear
-        Behavior on band { NumberAnimation { duration: 180 } }
-        tilt: pill.tilt
-    }
 
     Item {
         anchors.fill: parent
         clip: true
+        // Labels follow the glass between dark and light.
+        layer.enabled: glass.visible && !pill.solid
+        layer.effect: ShaderEffect {
+            property var lumTex: glass.lumTexture
+            property real lo: glass.lo
+            property real hi: glass.hi
+            fragmentShader: Qt.resolvedUrl("shaders/vibrant.frag.qsb")
+        }
 
         Row {
             id: row

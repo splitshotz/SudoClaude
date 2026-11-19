@@ -290,7 +290,9 @@ class Hyprland:
         # only the wallpaper (end-4 turns xray on for every layer). The overlay
         # stays in the user's own screenshots; SudoClaude's captures hide it for
         # a frame instead.
-        glass = {"blur": True, "ignore_alpha": 0.05, "xray": False}
+        # ignore_alpha sits halfway through the pill's anti-aliased edge (its
+        # lightest tint is 0.3), so the blur's hard cutoff hides under it.
+        glass = {"blur": True, "ignore_alpha": 0.15, "xray": False}
         rules = [{"name": "sudoclaude-overlay", "match": {"namespace": "^claude-computer-use$"},
                   "no_anim": True},
                  {"name": "sudoclaude-glass", "match": {"namespace": "^claude-cu-glass$"},
@@ -300,11 +302,22 @@ class Hyprland:
         for r in rules:
             r["no_screen_share"] = not in_captures
         if self.lua:
-            for r in rules:
-                try:
-                    self.eval(f"hl.layer_rule({lua_value(r)})")
-                except Exception:
-                    pass
+            # A config reload re-adds the user's own catch-all rules after ours,
+            # and end-4's turns xray on for every layer. Retire the old copies
+            # and add fresh ones so ours always come last.
+            body = " ".join(
+                f"do local t = {lua_value({k: v for k, v in r.items() if k != 'name'})} "
+                f"t.name = {lua_str(r['name'])} .. \"-\" .. g "
+                "table.insert(_G.__sudoclaude_rules, hl.layer_rule(t)) end"
+                for r in rules)
+            try:
+                self.eval("for _, r in ipairs(_G.__sudoclaude_rules or {}) do "
+                          "pcall(function() r:set_enabled(false) end) end "
+                          "_G.__sudoclaude_rules = {} "
+                          "_G.__sudoclaude_gen = (_G.__sudoclaude_gen or 0) + 1 "
+                          "local g = tostring(_G.__sudoclaude_gen) " + body)
+            except Exception:
+                pass
             return True
         for rule in ("noanim, claude-computer-use", "noanim, claude-cu-glass",
                      "blur, claude-cu-glass", "ignorealpha 0.05, claude-cu-glass",
