@@ -4,18 +4,19 @@ layout(location = 0) out vec4 fragColor;
 layout(std140, binding = 0) uniform buf {
     mat4 qt_Matrix;
     float qt_Opacity;
-    vec2 size;
-    vec2 origin;
+    vec2 size;        // the pill
+    float margin;     // room around it for the shadow
+    vec2 origin;      // pill's top-left on the screen the backdrop covers
     vec2 screen;
     float radius;
-    float band;
+    float band;       // width of the refracting lip
+    float frost;      // blur radius in px
     float strength;
     vec2 lightDir;
-    vec4 tint;
-    vec4 lightTint;
-    float mode;
-    float bLo;
-    float bHi;
+    vec4 tint;        // dark glass
+    vec4 lightTint;   // light glass
+    float mode;       // 0 dark, 1 light
+    float hasBackdrop;
 };
 layout(binding = 1) uniform sampler2D backdropTex;
 
@@ -28,63 +29,88 @@ vec3 tap(vec2 p) {
     return texture(backdropTex, (origin + size * 0.5 + p) / screen).rgb;
 }
 
+// Light frost: a 16-tap spiral, no noise.
+vec3 frosted(vec2 p) {
+    vec3 acc = tap(p);
+    for (int i = 0; i < 16; i++) {
+        float a = float(i) * 2.39996;
+        float r = frost * sqrt((float(i) + 0.5) / 16.0);
+        acc += tap(p + vec2(cos(a), sin(a)) * r);
+    }
+    return acc / 17.0;
+}
+
+float luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
+
+// Compress everything above `knee` so it eases toward `ceil` but never passes it.
+float cap(float x, float knee, float ceil_) {
+    if (x <= knee) return x;
+    float r = ceil_ - knee;
+    return knee + r * (1.0 - exp(-(x - knee) / r));
+}
+
 void main() {
     vec2 h = size * 0.5;
-    vec2 p = qt_TexCoord0 * size - h;
+    vec2 p = qt_TexCoord0 * (size + 2.0 * margin) - h - margin;
     float d = box(p, h, radius);
     vec2 e = vec2(0.75, 0.0);
     vec2 n = vec2(box(p + e.xy, h, radius) - box(p - e.xy, h, radius),
                   box(p + e.yx, h, radius) - box(p - e.yx, h, radius));
     n /= max(length(n), 1e-4);
-    vec2 tng = vec2(-n.y, n.x);
     float inside = smoothstep(0.75, -0.75, d);
     float depth = max(-d, 0.0);
 
-    // Lens lip: inside the band you see what lies just past the edge, pulled in
-    // and squeezed, the way a thick rounded rim bends light. Only pixels outside
-    // the pill are ever read, so the pill never samples itself.
-    float t = clamp(depth / band, 0.0, 1.0);
-    float bend = pow(1.0 - t, 2.2);
-    vec2 edge = p + n * depth;
-    vec2 sp = edge + n * (1.5 + 15.0 * bend);
-    vec2 ca = n * (0.6 + 2.2 * bend);
-    // Soften it a little so the rim and the blurred middle meet without a seam.
-    vec3 col = vec3(0.0);
-    for (int i = -2; i <= 2; i++) {
-        for (int j = 0; j <= 1; j++) {
-            vec2 o = tng * float(i) * 1.8 + n * float(j) * 2.0;
-            col += vec3(tap(sp + o + ca).r, tap(sp + o).g, tap(sp + o - ca).b);
-        }
+    // Soft shadow under the glass, kept faint so the compositor never blurs it.
+    float sh = box(p - vec2(0.0, 3.0), h, radius);
+    float shadow = 0.13 * exp(-max(sh, 0.0) / 7.0) * (1.0 - inside);
+
+    vec3 rgb;
+    float alpha;
+    if (hasBackdrop > 0.5) {
+        // Lens: at the lip you see what's just past the edge, pulled in; the
+        // middle is magnified a touch, like a thick convex slab.
+        float t = clamp(depth / band, 0.0, 1.0);
+        float bend = pow(1.0 - t, 2.0);
+        vec2 q = p * 0.95 + n * (16.0 * bend);
+        vec2 ca = n * (0.6 + 2.6 * bend);
+        vec3 c = vec3(frosted(q + ca).r, frosted(q).g, frosted(q - ca).b);
+
+        // Color comes through stronger, brightness is kept in a band the
+        // labels can be read on: dark glass caps the highlights, light glass
+        // lifts the shadows. Nothing is painted over it.
+        float L = luma(c);
+        c = clamp(mix(vec3(L), c, 1.35), 0.0, 1.0);
+        L = luma(c);
+        float Ld = cap(L, 0.12, 0.30);
+        float Ll = 1.0 - cap(1.0 - L, 0.06, 0.19);
+        vec3 cd = L > 1e-3 ? c * (Ld / L) : vec3(Ld);
+        vec3 cl = L < 0.999 ? 1.0 - (1.0 - c) * ((1.0 - Ll) / (1.0 - L)) : vec3(Ll);
+        c = mix(clamp(cd, 0.0, 1.0), clamp(cl, 0.0, 1.0), mode);
+        // A whisper of the glass's own tint ties it to the shell's palette.
+        c = mix(c, mix(tint.rgb, lightTint.rgb, mode), 0.12);
+        rgb = c * inside;
+        alpha = inside;
+    } else {
+        // No backdrop (fullscreen apps): translucent tint over the compositor's blur.
+        vec3 tc = mix(tint.rgb, lightTint.rgb, mode);
+        float ta = mix(0.62, 0.72, mode) * inside;
+        rgb = tc * ta;
+        alpha = ta;
     }
-    col /= 10.0;
-    float a = pow(1.0 - t, 1.4) * 0.9 * inside;
 
-    // Edge: a crisp bright line all the way round (brighter where it faces the
-    // light, with a weaker bounce opposite), sitting on a faint dark line.
-    float lip = exp(-depth / 0.8);
+    // Edge: a crisp bright line all the way round, brighter where it faces the
+    // light, over a faint dark line.
     float line = smoothstep(1.6, 0.4, depth) * inside;
-    vec2 L = normalize(lightDir);
-    float face = dot(n, L);
-    float rim = line * (0.16 + 0.42 * pow(max(face, 0.0), 3.0) + 0.22 * pow(max(-face, 0.0), 3.0));
-    float dark = smoothstep(3.2, 1.4, depth) * (1.0 - line) * inside * 0.22;
-
-    // Tint so labels always keep their contrast. Dark glass sizes itself
-    // against the brightest things around the pill so white labels stay
-    // readable over a bright patch; light glass sizes itself against the darkest
-    // so dark labels do. mode crossfades between the two.
-    float Ld = dot(tint.rgb, vec3(0.2126, 0.7152, 0.0722));
-    float Ll = dot(lightTint.rgb, vec3(0.2126, 0.7152, 0.0722));
-    float darkA = clamp((bHi - 0.26) / max(bHi - Ld, 1e-3), tint.a, 0.86);
-    float lightA = clamp((0.84 - bLo) / max(Ll - bLo, 1e-3), lightTint.a, 0.9);
-    vec3 tc = mix(tint.rgb, lightTint.rgb, mode);
-    float ta = mix(darkA, lightA, mode) * inside;
-    dark *= 1.0 - 0.7 * mode;
-
-    vec3 rgb = col * a * (1.0 - dark);
-    float alpha = a + dark * (1.0 - a);
-    rgb = rgb * (1.0 - ta) + tc * ta;
-    alpha = alpha + ta * (1.0 - alpha);
+    vec2 L2 = normalize(lightDir);
+    float face = dot(n, L2);
+    float rim = line * (0.18 + 0.45 * pow(max(face, 0.0), 3.0) + 0.25 * pow(max(-face, 0.0), 3.0));
+    float dark = smoothstep(3.2, 1.4, depth) * (1.0 - line) * inside * 0.20 * (1.0 - 0.7 * mode);
+    rgb *= 1.0 - dark;
     rgb = rgb + vec3(rim) * (1.0 - rgb);
     alpha = min(1.0, alpha + rim * (1.0 - alpha));
+
+    // Shadow goes under everything else.
+    rgb = rgb + vec3(0.0) * shadow * (1.0 - alpha);
+    alpha = alpha + shadow * (1.0 - alpha);
     fragColor = vec4(rgb, alpha) * strength * qt_Opacity;
 }
