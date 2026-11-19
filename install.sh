@@ -46,7 +46,7 @@ fi
 
 echo
 printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}' \
-  '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"doctor","arguments":{}}}' \
+  '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"desktop","arguments":{"action":"doctor"}}}' \
   | timeout 20 "$BIN" 2>/dev/null | tail -1 \
   | python3 -c 'import json,sys; print(json.loads(sys.stdin.read())["result"]["content"][0]["text"])'
 echo
