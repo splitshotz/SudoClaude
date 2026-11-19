@@ -1232,8 +1232,11 @@ class Desktop:
                          (by - w["y"] + bh) * sy)
                     if r[2] <= 0 or r[3] <= 0 or r[0] >= iw or r[1] >= ih:
                         continue
+                    label = lines.get(ref, "").strip()
+                    if not label or re.fullmatch(r'[\w ]+ ""( value=\S*)?', label):
+                        continue
                     marks.append((ref, r))
-                    legend.append(f"[{ref}] {lines.get(ref, '')}")
+                    legend.append(f"[{ref}] {label}")
                     tree_n += 1
             except Exception as e:
                 log("see: no tree:", e)
