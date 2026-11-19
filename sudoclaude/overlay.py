@@ -12,6 +12,33 @@ RUNTIME = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
 SOCK = os.path.join(RUNTIME, "sudoclaude-overlay.sock")
 LOG = os.path.join(RUNTIME, "sudoclaude-overlay.log")
 STAMP = os.path.join(RUNTIME, "sudoclaude-overlay.stamp")
+PIDFILE = os.path.join(RUNTIME, "sudoclaude-overlay.pid")
+
+
+def _end_previous():
+    """Close the overlay this module last started, if it's still around, so a
+    restart never leaves two of them drawing."""
+    try:
+        with open(PIDFILE) as f:
+            pid = int(f.read().strip())
+        with open(f"/proc/{pid}/cmdline", "rb") as f:
+            cmd = f.read()
+    except (OSError, ValueError):
+        return
+    args = [a for a in cmd.split(b"\0") if a]
+    ours = QML.encode() in cmd
+    # Quickshell's crash relauncher runs under a bare name with no arguments.
+    relaunched = len(args) == 1 and os.path.basename(args[0]) in (b"quickshell", b"qs")
+    if not (ours or relaunched):
+        return
+    try:
+        os.kill(pid, 15)
+    except OSError:
+        return
+    for _ in range(30):
+        if not os.path.exists(f"/proc/{pid}"):
+            return
+        time.sleep(0.05)
 
 
 def code_mtime():
@@ -81,6 +108,7 @@ class Overlay:
         threading.Thread(target=self._reader, args=(s,), daemon=True).start()
 
     def _spawn(self):
+        _end_previous()
         if os.path.exists(SOCK):
             os.unlink(SOCK)
         os.makedirs(os.path.expanduser("~/.local/state/sudoclaude"), exist_ok=True)
@@ -88,8 +116,11 @@ class Overlay:
         with open(STAMP, "w") as f:
             f.write(str(code_mtime()))
         log = open(LOG, "w")
-        subprocess.Popen([self.bin, "-p", QML], env=env, stdout=log, stderr=subprocess.STDOUT,
-                         stdin=subprocess.DEVNULL, start_new_session=True)
+        proc = subprocess.Popen([self.bin, "-p", QML], env=env, stdout=log,
+                                stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                                start_new_session=True)
+        with open(PIDFILE, "w") as f:
+            f.write(str(proc.pid))
 
     def _ensure(self):
         if self.sock:
