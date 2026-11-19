@@ -42,6 +42,8 @@ There are seven tools:
 
 Screenshots can also grab a single window, even one on another workspace or under other windows, and shortcuts can go to a window in the background.
 
+Clicking through an app is the fallback, though. Claude is told to use whatever is best for each step: an MCP server or skill made for the app (Unity, Blender, Figma and so on), a command line tool, an API, or just editing the files, and to reach for the screen only when nothing better exists or it needs to see how something actually looks.
+
 ## Browser
 
 For websites, Claude doesn't have to look at pixels and move your mouse. A small Chromium extension lets it read a page's buttons, links and fields, click and type into them by reference, and screenshot the tab itself, the same way Claude in Chrome works. It does this through Chrome's debugger API, so it works in a background tab while you use the mouse for something else. While it's working, Chromium shows its usual "is debugging this browser" bar; it goes away about 20 seconds after Claude stops.
@@ -143,6 +145,7 @@ Settings live in `~/.config/sudoclaude/config.json`:
   "overlay_style": "hairline",
   "idle_seconds": 25,
   "voice": {
+    "name": "Andrew",
     "tts": "chatterbox",
     "tts_kokoro": {"voice": "af_heart"},
     "followup_seconds": 6,
@@ -152,7 +155,7 @@ Settings live in `~/.config/sudoclaude/config.json`:
 }
 ```
 
-Start and stop popups only show if the overlay isn't available; set `notifications` to `"always"` to get them anyway. `copilot: false` makes Claude take the mouse and focus like it normally would. In `voice`, `tts` is `chatterbox` or `kokoro`, and a 10 second clip of any voice dropped in `~/.local/share/sudoclaude/models/voices/` can be used with `"tts_chatterbox": {"voice": "clip.wav"}`.
+Start and stop popups only show if the overlay isn't available; set `notifications` to `"always"` to get them anyway. `copilot: false` makes Claude take the mouse and focus like it normally would. In `voice`, `name` is what Claude calls you (it defaults to the first name on your account), `tts` is `chatterbox` or `kokoro`, and a 10 second clip of any voice dropped in `~/.local/share/sudoclaude/models/voices/` can be used with `"tts_chatterbox": {"voice": "clip.wav"}`.
 
 `sensitive` adds your own window classes to the ask-first list, and `denied` blocks apps completely. `approvals` can be `smart` (the default), `strict`, or `off`, which never asks about anything. `tier_overrides` takes `view`, `click` or `full` per window class and mostly matters in strict mode.
 
