@@ -322,8 +322,12 @@ class Assistant:
             os.unlink(TYPE_FLAG)
         except OSError:
             pass
+        t0 = time.time()
         got = self.capture(**kw)
         if not self.typing.is_set():
+            why = ("cancelled" if self.cancel.is_set() else "nothing said" if got is None
+                   else "got speech")
+            log(f"listen ended after {time.time() - t0:.1f}s: {why}")
             return got
         while not self.typed.empty():
             self.typed.get_nowait()
@@ -378,10 +382,13 @@ class Assistant:
             got = self.listen(start_timeout=6.0)
             cmd = strip_wake(got[1]) if got and got[1] else ""
             if not cmd:
+                if got:
+                    log("speech but no words:", repr((got[1] or "")[:40]))
                 return self.finish()
             log("heard:", repr(cmd))
             return self.converse(cmd)
         prefix = self.utterance_prefix()
+        strong_hit, heard = bool(strong), ""
         if strong:
             # Check the words so far before lighting anything up: one quick pass
             # over a second or two of audio, so a false fire stays invisible.
@@ -394,8 +401,13 @@ class Assistant:
             return self.finish(quiet=True)
         audio, text = got
         if not has_wake(text):
-            # Don't keep what people in the room say when it wasn't meant for Claude.
-            log("not addressed to Claude, ignored")
+            # Don't keep what people in the room say when it wasn't meant for Claude,
+            # except a short note for confident hits so a deaf spot can be found.
+            if strong_hit:
+                log("strong wake rejected, heard:", repr((text or "")[:40]),
+                    "| prefix:", repr((heard or "")[:40]))
+            else:
+                log("not addressed to Claude, ignored")
             return self.finish(quiet=True)
         log("heard:", repr(text))
         if not strong:
@@ -416,7 +428,9 @@ class Assistant:
         threading.Thread(target=self.ducker.duck, daemon=True).start()
         place = self.placement()
         self.pick_voice(place)
+        # stopped/idle belong to computer use; a voice turn always starts fresh.
         self.ui(voice="listening", status="Listening", transcript="", level=0,
+                stopped=False, idle=False,
                 **{k: v for k, v in place.items() if k != "content"})
         # Double-tap Space to type instead, except over fullscreen apps and games.
         self.hook_space(place.get("mode") != "corner")
