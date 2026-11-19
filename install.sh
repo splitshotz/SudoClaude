@@ -44,6 +44,8 @@ if command -v claude >/dev/null; then
   claude mcp add -s user sudoclaude -- "$BIN" && echo "Added to Claude Code"
 fi
 
+"$DIR/bin/sudoclaude-browser-setup" || echo "Browser extension setup failed; run bin/sudoclaude-browser-setup later."
+
 echo
 printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}' \
   '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"desktop","arguments":{"action":"doctor"}}}' \

@@ -1342,6 +1342,25 @@ TOOLS = [
          "apps": {"type": "array", "items": {"type": "string"}},
          "app": {"type": "string"}, "reason": {"type": "string"}},
          "required": ["action"]}},
+    {"name": "browser",
+     "description": "Use Chromium tabs directly, like Claude in Chrome: works in background tabs "
+                    "without the mouse or focus. read: the page's interactive elements with refs "
+                    "(query= to filter, all=true for headings and text too); text: the page's "
+                    "visible text; click (ref, or x,y in the last browser screenshot); type (ref, "
+                    "text, clear, submit); key ('Enter', 'ctrl+a'); scroll (dy); navigate (url, "
+                    "or 'back'); open (url, new tab in the background unless active=true); tabs; "
+                    "activate; close; screenshot (of the tab itself); eval (js). tabId defaults "
+                    "to the active tab. Prefer read/text over screenshots.",
+     "inputSchema": {"type": "object", "properties": {
+         "action": {"type": "string", "enum": ["read", "text", "click", "type", "key", "scroll",
+                                               "navigate", "open", "tabs", "activate", "close",
+                                               "screenshot", "eval"]},
+         "tabId": {"type": "integer"}, "ref": {"type": "string"}, "query": {"type": "string"},
+         "all": {"type": "boolean"}, "text": {"type": "string"}, "url": {"type": "string"},
+         "keys": {"type": "string"}, "x": {"type": "number"}, "y": {"type": "number"},
+         "dy": {"type": "number"}, "clear": {"type": "boolean"}, "submit": {"type": "boolean"},
+         "active": {"type": "boolean"}, "js": {"type": "string"}, "count": {"type": "integer"}},
+         "required": ["action"]}},
     {"name": "music",
      "description": "Apple Music through Cider, without touching its window. play (query: "
                     "song/album/artist name searches Apple Music and plays the top hit; no "
@@ -1374,6 +1393,8 @@ Be efficient. Screenshots are the expensive part, so:
   the mouse.
 Coordinates default to the pixels of the latest screenshot. Keys held with key_down stay
 down until key_up. If a call says the user stopped computer use, stop and ask them.
+For anything on a website, use the browser tool (Chromium) instead of screenshots and
+clicks: read the page, act on refs, and open new tabs in the background.
 The user may be working at the same time. While they're active, apps you open land beside
 them without taking focus (launch target='auto' does the same, and picks a free workspace
 when they're in a fullscreen game or video), keys you send without a window go to your
@@ -1803,6 +1824,39 @@ def tool_access(a):
     return [txt(json.dumps({names.get(k, k): D.policy.is_approved(k) for k in keys}))]
 
 
+_browser = None
+
+
+def tool_browser(a):
+    global _browser
+    from .browser import Browser
+    if _browser is None:
+        _browser = Browser(log=log)
+    act = a["action"]
+    args = {k: v for k, v in a.items() if k != "action" and v is not None}
+    D.policy.require("chromium", "click" if act not in ("read", "text", "tabs", "screenshot")
+                     else "view", act)
+    if act in ("click", "type", "key", "scroll", "navigate"):
+        D.begin("Browsing", act.capitalize())
+    if act == "screenshot":
+        r = _browser.call("screenshot", **args)
+        return [{"type": "image", "data": r["data"], "mimeType": "image/jpeg"},
+                txt({"tabId": r["tabId"], "image": [r["width"], r["height"]],
+                     "hint": "click x,y in this image's pixels"})]
+    if act == "eval":
+        args["js"] = args.get("js") or args.get("text", "")
+    if act == "key" and "keys" not in args:
+        args["keys"] = args.get("text", "")
+    if act == "read" and "query" in args:
+        pass
+    r = _browser.call(act, timeout=45 if act in ("navigate", "open") else 30, **args)
+    if act == "read" and isinstance(r, dict):
+        return [txt(f'tab {r["tabId"]}: {r["title"]} ({r["url"]})\n{r["tree"]}')]
+    if act == "text" and isinstance(r, str):
+        return [txt(r)]
+    return [txt(r if isinstance(r, str) else json.dumps(r))]
+
+
 def tool_music(a):
     from . import music
 
@@ -1824,7 +1878,7 @@ def tool_music(a):
 
 HANDLERS = {"computer": tool_computer, "open_application": tool_open_application,
             "desktop": tool_desktop, "ui": tool_ui, "access": tool_access,
-            "music": tool_music}
+            "music": tool_music, "browser": tool_browser}
 
 
 def call_tool(name, a):
@@ -2037,6 +2091,16 @@ def main():
     if D.comp and D.comp.name == "hyprland":
         os.environ.setdefault("HYPRLAND_INSTANCE_SIGNATURE", D.comp.signature)
     log(f"v{VERSION} compositor={D.comp.name if D.comp else None}")
+
+    def start_browser():
+        global _browser
+        try:
+            from .browser import Browser
+            _browser = Browser(log=log)
+            log(f"browser bridge: {_browser.mode}")
+        except Exception as e:
+            log("browser bridge unavailable:", e)
+    threading.Thread(target=start_browser, daemon=True).start()
     out = sys.stdout.buffer
     try:
         for line in sys.stdin.buffer:

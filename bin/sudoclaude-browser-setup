@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Installs the SudoClaude extension into Chromium (loaded on every start).
+set -euo pipefail
+here="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+dest="${XDG_DATA_HOME:-$HOME/.local/share}/sudoclaude/extension"
+mkdir -p "$dest"
+cp "$here/extension/manifest.json" "$here/extension/bg.js" "$dest/"
+token="$(python3 -c "import sys; sys.path.insert(0, '$here'); from sudoclaude.browser import token, PORT; print(token())")"
+printf 'self.SUDOCLAUDE = { port: 47823, token: "%s" };\n' "$token" > "$dest/config.js"
+chmod 600 "$dest/config.js"
+for flags in "$HOME/.config/chromium-flags.conf"; do
+  touch "$flags"
+  grep -q -- "--load-extension=$dest" "$flags" || echo "--load-extension=$dest" >> "$flags"
+  grep -q -- "--force-renderer-accessibility" "$flags" || echo "--force-renderer-accessibility" >> "$flags"
+done
+echo "Installed. Restart Chromium to load it."

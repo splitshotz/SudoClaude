@@ -26,15 +26,23 @@ The script installs what's missing with pacman, adds the server to `~/.config/Cl
 
 Anything you'd do with a mouse and keyboard. That includes every kind of click, click and hold, pressing and releasing any mouse button, drags, smooth paths through several points, relative mouse movement for games, scrolling in any direction, typing any unicode, any key combo (raw keycodes too), and holding keys down across other actions, like holding W while moving the mouse.
 
-There are five tools:
+There are seven tools:
 
 - `computer` covers the screen, mouse and keyboard. It uses the same action names as Claude's own computer use, and it takes a whole list of actions at once, so Claude can plan a sequence of moves and run it in one go instead of checking after every step.
 - `open_application` opens anything with a .desktop entry by name, or focuses it if it's already running, and waits for the window.
 - `desktop` handles Hyprland: workspaces (special ones too), windows, monitors, launching commands, the clipboard, and my keybinds with the same labels the Super+/ cheatsheet shows. Those come from the live config, so if I change a bind it picks that up.
 - `ui` reads an app's real interface through AT-SPI (buttons, fields, menus, tabs with their labels and positions) and can press, fill in or toggle things without touching the mouse. It also has OCR for apps that don't expose anything.
+- `browser` uses Chromium tabs directly through the extension (see Browser below).
+- `music` controls Apple Music in Cider without touching its window.
 - `access` is for the few sensitive apps that need a yes from me first.
 
 Screenshots can also grab a single window, even one on another workspace or under other windows, and shortcuts can go to a window in the background.
+
+## Browser
+
+For websites, Claude doesn't have to look at pixels and move your mouse. A small Chromium extension lets it read a page's buttons, links and fields, click and type into them by reference, and screenshot the tab itself, the same way Claude in Chrome works. It does this through Chrome's debugger API, so it works in a background tab while you use the mouse for something else. While it's working, Chromium shows its usual "is debugging this browser" bar; it goes away about 20 seconds after Claude stops.
+
+`./install.sh` sets it up (or run `bin/sudoclaude-browser-setup`), then restart Chromium once. The extension only talks to SudoClaude on this computer, over a local socket that needs a token only your user can read.
 
 ## Keeping usage down
 
