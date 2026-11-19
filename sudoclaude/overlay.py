@@ -11,6 +11,19 @@ QML = os.path.join(HERE, "overlay", "overlay.qml")
 RUNTIME = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
 SOCK = os.path.join(RUNTIME, "sudoclaude-overlay.sock")
 LOG = os.path.join(RUNTIME, "sudoclaude-overlay.log")
+STAMP = os.path.join(RUNTIME, "sudoclaude-overlay.stamp")
+
+
+def code_mtime():
+    """Newest change to the overlay's QML or shaders."""
+    newest = 0.0
+    for root, _, files in os.walk(os.path.dirname(QML)):
+        for n in files:
+            try:
+                newest = max(newest, os.path.getmtime(os.path.join(root, n)))
+            except OSError:
+                pass
+    return newest
 
 
 class Overlay:
@@ -72,6 +85,8 @@ class Overlay:
             os.unlink(SOCK)
         os.makedirs(os.path.expanduser("~/.local/state/sudoclaude"), exist_ok=True)
         env = dict(os.environ, SUDOCLAUDE_SOCK=SOCK, QT_QPA_PLATFORM="wayland")
+        with open(STAMP, "w") as f:
+            f.write(str(code_mtime()))
         log = open(LOG, "w")
         subprocess.Popen([self.bin, "-p", QML], env=env, stdout=log, stderr=subprocess.STDOUT,
                          stdin=subprocess.DEVNULL, start_new_session=True)
@@ -84,6 +99,7 @@ class Overlay:
         try:
             try:
                 self._connect()
+                self._restart_if_stale()
             except OSError:
                 self._rules()
                 self._spawn()
@@ -111,6 +127,36 @@ class Overlay:
             self.failed_at = time.time()
             self.sock = None
             return False
+
+    def _restart_if_stale(self):
+        """An overlay left running from older code (Quickshell relaunches itself
+        after a crash) gets asked to quit, so the caller spawns a fresh one."""
+        try:
+            with open(STAMP) as f:
+                started = float(f.read().strip() or 0)
+        except (OSError, ValueError):
+            started = 0.0
+        if code_mtime() <= started:
+            return
+        try:
+            self.sock.sendall(b'{"quit": true}\n')
+        except OSError:
+            pass
+        try:
+            self.sock.close()
+        except OSError:
+            pass
+        self.sock = None
+        deadline = time.time() + 3
+        while time.time() < deadline:
+            try:
+                probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                probe.connect(SOCK)
+                probe.close()
+                time.sleep(0.1)
+            except OSError:
+                break
+        raise OSError("overlay was stale")
 
     def _reader(self, s):
         buf = b""
