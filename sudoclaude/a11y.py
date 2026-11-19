@@ -132,7 +132,7 @@ class Tree:
         q = (query or "").lower()
 
         def visit(node, depth):
-            if self.n >= max_nodes or depth > max_depth:
+            if node is None or self.n >= max_nodes or depth > max_depth:
                 return
             st = _safe(node.get_state_set)
             if st is not None and depth > 0 and not st.contains(A.StateType.SHOWING) \

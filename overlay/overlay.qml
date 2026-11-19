@@ -26,6 +26,18 @@ ShellRoot {
     property string transcript: ""
     property real level: 0
     property string style: "hairline"
+    property var pal: ({})
+
+    // The desktop's Material You palette, so the pill matches the shell.
+    FileView {
+        id: palFile
+        path: Quickshell.env("HOME") + "/.local/state/quickshell/user/generated/colors.json"
+        watchChanges: true
+        onFileChanged: reload()
+        onLoaded: {
+            try { shell.pal = JSON.parse(text()) } catch (e) {}
+        }
+    }
     property int rippleSeq: 0
     property real rippleX: 0
     property real rippleY: 0
@@ -132,8 +144,10 @@ ShellRoot {
             visible: here && shell.mode !== "corner" && (shell.present || pillWrap.opacity > 0.01)
             anchors { bottom: true }
             margins { bottom: 26 }
-            implicitWidth: pill.width + 40
-            implicitHeight: pill.height + 24
+            // Fixed size: resizing a layer surface every frame is what made the
+            // old pill stutter. Only the pill itself takes input.
+            implicitWidth: 1100
+            implicitHeight: 96
             exclusionMode: ExclusionMode.Ignore
             color: "transparent"
             WlrLayershell.layer: WlrLayer.Overlay
@@ -144,16 +158,23 @@ ShellRoot {
             Item {
                 id: pillWrap
                 anchors.fill: parent
-                property real fade: shell.present && shell.mode !== "corner" ? 1 : 0
-                Behavior on fade { NumberAnimation { duration: shell.present ? 450 : 700; easing.type: Easing.OutCubic } }
+                readonly property bool on: shell.present && shell.mode !== "corner"
+                property real fade: on ? 1 : 0
+                Behavior on fade { NumberAnimation { duration: pillWrap.on ? 220 : 260; easing.type: Easing.OutCubic } }
                 opacity: shell.capturing ? 0 : fade
-                transform: Translate {
-                    y: shell.present ? 0 : 14
-                    Behavior on y { NumberAnimation { duration: 520; easing.type: Easing.OutCubic } }
-                }
                 Pill {
                     id: pill
-                    anchors.centerIn: parent
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.bottom: parent.bottom
+                    anchors.bottomMargin: 6
+                    pal: shell.pal
+                    transformOrigin: Item.Bottom
+                    scale: pillWrap.on ? 1 : 0.86
+                    Behavior on scale { SpringAnimation { spring: 5; damping: 0.38; epsilon: 0.002 } }
+                    transform: Translate {
+                        y: pillWrap.on ? 0 : 18
+                        Behavior on y { SpringAnimation { spring: 4.5; damping: 0.42 } }
+                    }
                     status: shell.status
                     detail: shell.detail
                     subtitle: shell.transcript
@@ -178,8 +199,8 @@ ShellRoot {
             readonly property bool here: shell.focusScreen === "" || shell.focusScreen === modelData.name
             visible: here && shell.mode === "corner" && (shell.present || badge.opacity > 0.01)
             anchors { top: true; right: true }
-            implicitWidth: badge.implicitWidth
-            implicitHeight: badge.implicitHeight
+            implicitWidth: 900
+            implicitHeight: 140
             exclusionMode: ExclusionMode.Ignore
             color: "transparent"
             WlrLayershell.layer: WlrLayer.Overlay
@@ -191,6 +212,7 @@ ShellRoot {
                 id: badge
                 anchors.fill: parent
                 shown: shell.present && shell.mode === "corner"
+                pal: shell.pal
                 capturing: shell.capturing
                 status: shell.status
                 detail: shell.detail

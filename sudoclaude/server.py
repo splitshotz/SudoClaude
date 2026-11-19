@@ -1,6 +1,7 @@
 import base64
 import io
 import json
+import re
 import math
 import os
 import shutil
@@ -410,7 +411,7 @@ class Desktop:
         x0, y0 = max(bx, round(x)), max(by, round(y))
         x1, y1 = min(bx + bw, round(x + w)), min(by + bh, round(y + h))
         if x1 - x0 < 4 or y1 - y0 < 4:
-            raise ValueError("that area is off screen or too small")
+            raise ValueError("that area is off screen or too small. region is [x0, y0, x1, y1] in the latest screenshot's pixels; pass space=\"logical\" for desktop coordinates, or window= to capture one window")
         return x0, y0, x1 - x0, y1 - y0
 
     def _screenshot_grim(self, monitor, cursor, max_edge):
@@ -987,15 +988,54 @@ class Desktop:
                 self.kbd.key(m, False)
             self.sync()
 
-    def type(self, text, delay_ms=2, method="auto", paste_keys="ctrl+v"):
-        self.wl()
-        bg = self.copilot.key_target()
-        if bg and all(ch in US_CHARS or ch in "\n\t" for ch in text):
+    TERMINALS = ("kitty", "alacritty", "foot", "wezterm", "konsole", "ghostty",
+                 "xterm", "gnome-terminal", "terminator", "tilix")
+
+    def _clipboard_swap(self, text):
+        old = None
+        if self.wl_paste:
+            r = subprocess.run([self.wl_paste, "-n", "-t", "text/plain"], capture_output=True,
+                               timeout=3)
+            old = r.stdout if r.returncode == 0 else None
+        subprocess.Popen([self.wl_copy], stdin=subprocess.PIPE).communicate(text.encode(),
+                                                                          timeout=5)
+        time.sleep(0.08)
+        return old
+
+    def _clipboard_restore(self, old):
+        if old is not None:
+            time.sleep(0.3)
+            subprocess.Popen([self.wl_copy], stdin=subprocess.PIPE).communicate(old, timeout=5)
+
+    def _type_background(self, text, target, method):
+        w = self.find_window(**target) if isinstance(target, dict) else self.find_window(id=target)
+        self.policy.require(w["app"], "type", w["title"])
+        self.begin("Typing", f"→ {w['app']}", win=w)
+        simple = all(ch in US_CHARS or ch in "\n\t" for ch in text)
+        # Some toolkits (Qt) ignore Shift on letters sent this way, so anything with
+        # capitals, non-ASCII or a lot of text goes through the clipboard instead.
+        if method == "keys" or (method == "auto" and simple and not any(c.isupper() for c in text)
+                                and len(text) <= 200):
             combos = ["Return" if ch == "\n" else "Tab" if ch == "\t" else
                       ("space" if ch == " " else ch) for ch in text]
-            self.policy.require(self.find_window(id=bg)["app"], "type")
-            w = self._key_background([self.parse_combo(k) for k in combos], bg, 1)
-            return f"typed in the background into {w['app']}:"
+            self._key_background([self.parse_combo(k) for k in combos], w["id"], 1)
+            return f"typed into {w['app']} in the background:"
+        if not self.wl_copy:
+            raise RuntimeError("wl-clipboard not installed; background paste needs it")
+        term = any(t in (w["app"] or "").lower() for t in self.TERMINALS)
+        keys = "ctrl+shift+v" if term else "ctrl+v"
+        old = self._clipboard_swap(text)
+        try:
+            self._key_background([self.parse_combo(keys)], w["id"], 1)
+        finally:
+            self._clipboard_restore(old)
+        return f"pasted into {w['app']} in the background:"
+
+    def type(self, text, delay_ms=2, method="auto", paste_keys="ctrl+v", window=None):
+        self.wl()
+        target = window or self.copilot.key_target()
+        if target:
+            return self._type_background(text, target, method)
         self.policy.require(self.focused_app(), "type")
         self.begin("Typing", "Typing…")
         if method == "auto":
@@ -1135,6 +1175,13 @@ class Desktop:
                 f"a restart after accessibility is enabled (already done now), or use "
                 f"screenshots instead.")
         frame = self.tree.frame_for(app, w.get("title"))
+        if frame is None:
+            text = window_text(w["id"])
+            hint = ("Chromium-based apps need --force-renderer-accessibility to expose a tree."
+                    if any(k in (w["app"] or "").lower() for k in ("chrom", "brave", "edge", "vivaldi"))
+                    else "")
+            return (f'{w["app"]}: no accessibility frame for this window. {hint}\n'
+                    + (f"OCR of the window instead:\n{text}" if text else "Use screenshots."))
         sp = self.shot_space
         if sp and sp.kind == "screenshot" and sp.contains_logical(
                 w["x"] + w["width"] / 2, w["y"] + w["height"] / 2):
@@ -1470,7 +1517,8 @@ def computer_action(a):
         D.scroll(x, y, dy, dx, sp, a.get("modifiers"))
         return f"scrolled {d} {n}", []
     if act == "type":
-        how = D.type(a["text"], 2, a.get("method", "auto"), a.get("paste_keys", "ctrl+v"))
+        how = D.type(a["text"], 2, a.get("method", "auto"), a.get("paste_keys", "ctrl+v"),
+                     a.get("window"))
         return f"{how} {len(a['text'])} chars", []
     if act == "key":
         w = D.key(a["text"], a.get("repeat", 1), 30, a.get("window"))
@@ -1531,6 +1579,36 @@ def tool_open_application(a):
     return [txt(info)] + after_blocks(a.get("after", "none"))
 
 
+def combo_key(combo):
+    parts = [p.strip().upper() for p in re.split(r"[+\s]+", combo) if p.strip()]
+    if not parts:
+        return ""
+    alias = {"CONTROL": "CTRL", "MOD4": "SUPER", "WIN": "SUPER", "META": "SUPER"}
+    parts = [alias.get(p, p) for p in parts]
+    return "+".join(sorted(parts[:-1]) + [parts[-1]])
+
+
+def lua_bind_commands():
+    """Exec binds in the Lua config, keyed by combo, so keybinds can say what a
+    bind actually runs instead of an opaque handler id."""
+    out = {}
+    base = os.path.expanduser("~/.config/hypr")
+    pat = re.compile(r'hl\.bind\(\s*(["\'])(.+?)\1\s*,\s*hl\.dsp\.exec_cmd\(\s*'
+                     r'(?:"((?:[^"\\]|\\.)*)"|\'((?:[^\'\\]|\\.)*)\'|\[(=*)\[(.*?)\]\5\])', re.S)
+    for root, _, files in os.walk(base):
+        for f in files:
+            if not f.endswith(".lua"):
+                continue
+            try:
+                src = open(os.path.join(root, f), encoding="utf-8", errors="replace").read()
+            except OSError:
+                continue
+            for m in pat.finditer(src):
+                cmd = m.group(3) or m.group(4) or m.group(6) or ""
+                out.setdefault(combo_key(m.group(2)), cmd.strip()[:160])
+    return out
+
+
 def tool_desktop(a):
     act = a["action"]
     if act == "doctor":
@@ -1554,7 +1632,7 @@ def tool_desktop(a):
         threading.Thread(target=later, daemon=True).start()
         return [txt("restarting with the latest code")]
     if act == "list_apps":
-        q = (a.get("query") or "").lower()
+        q = (a.get("query") or a.get("app") or a.get("text") or a.get("target") or "").lower()
         lst = [x.as_dict() for x in apps.list_apps()
                if not q or q in (x.name + " " + x.id + " " + x.generic).lower()]
         return [txt(json.dumps(lst[:150]))]
@@ -1616,7 +1694,8 @@ def tool_desktop(a):
             c.toggle_special(tgt)
         return [txt(f"{op} {tgt}".strip())] + after_blocks(a.get("after"))
     if act == "keybinds":
-        out = []
+        out, seen = [], set()
+        execs = lua_bind_commands()
         for b in c.keybinds(a.get("query")):
             mods, _, key = b["keys"].rpartition("+")
             lab = D.labels.label(mods, key) or {}
@@ -1626,6 +1705,16 @@ def tool_desktop(a):
                 b["description"] = lab["description"]
             if lab.get("section"):
                 b["section"] = lab["section"]
+            arg = str(b.get("arg") or "")
+            if arg.startswith("function:") or arg.isdigit():
+                b.pop("arg", None)
+                cmd = execs.get(combo_key(b["keys"]))
+                if cmd:
+                    b["runs"] = cmd
+            sig = (b["keys"], b.get("description"), b.get("arg"), b.get("runs"))
+            if sig in seen:
+                continue
+            seen.add(sig)
             out.append({k: v for k, v in b.items() if v not in ("", None)})
         return [txt(json.dumps(out, separators=(",", ":")))]
     if act == "launch":
@@ -1668,10 +1757,26 @@ def tool_ui(a):
         return [txt(D.a11y_tree(a.get("window"), a.get("query"),
                                 a.get("interactive_only", True), a.get("max_nodes", 400)))]
     if act == "act":
-        res = D.a11y_action(a["ref"], a.get("op", "click"), a.get("text"), a.get("value"))
-        return [txt(res)] + after_blocks(a.get("after"))
+        ref = a.get("ref")
+        if not ref:
+            if not a.get("query"):
+                raise ValueError("act needs ref (from ui tree), or query to find the element")
+            D.a11y_tree(a.get("window"), a["query"], False, 50)
+            refs = list(D.tree.refs) if D.tree else []
+            if not refs:
+                raise ValueError(f"no element matches {a['query']!r}")
+            ref = refs[0]
+        res = D.a11y_action(ref, a.get("op", "click"), a.get("text"), a.get("value"))
+        after = a.get("after")
+        if after and after != "none" and D.tree_window and D.cap and D.cap.can_window:
+            # Show the window that was acted on, not whatever has focus.
+            time.sleep(0.15)
+            data, sp, meta = D.window_shot(D.tree_window["id"],
+                                           {"low": 960, "normal": 1280, "high": 1568}.get(after, 960))
+            return [txt(res), img_block(data)]
+        return [txt(res)] + after_blocks(after)
     if act == "find_text":
-        return [txt(json.dumps(find_text(a["query"], a.get("monitor"))))]
+        return [txt(json.dumps(find_text(a["query"], a.get("monitor"), window=a.get("window"))))]
     raise ValueError(f"unknown ui action {act!r}")
 
 
@@ -1732,16 +1837,67 @@ def call_tool(name, a):
             D.copilot.end_call()
 
 
-def find_text(query, monitor=None, max_results=10):
+class _Box:
+    def __init__(self, name, x, y, w, h):
+        self.name, self.x, self.y, self.width, self.height = name, x, y, w, h
+
+
+def ocr_lines(im):
+    from PIL import ImageOps
+    iw, ih = im.size
+    g = im.convert("L")
+    if sum(g.resize((64, 64)).getdata()) / 4096 < 110:
+        g = ImageOps.invert(g)
+    up = 2 if iw < 2500 else 1
+    if up > 1:
+        g = g.resize((iw * up, ih * up))
+    buf = io.BytesIO()
+    g.save(buf, "PNG", compress_level=0)
+    r = subprocess.run([D.tesseract, "stdin", "stdout", "--psm", "11", "tsv"],
+                       input=buf.getvalue(), capture_output=True, timeout=30)
+    if r.returncode != 0:
+        raise RuntimeError("tesseract failed: " + r.stderr.decode(errors="replace")[-300:])
+    lines = {}
+    for row in r.stdout.decode(errors="replace").splitlines()[1:]:
+        f = row.split("\t")
+        if len(f) < 12 or not f[11].strip():
+            continue
+        lines.setdefault((f[2], f[3], f[4]), []).append(
+            (f[11], int(f[6]) / up, int(f[7]) / up, int(f[8]) / up, int(f[9]) / up,
+             float(f[10])))
+    return lines
+
+
+def window_text(window, max_chars=3000):
+    """Plain OCR of a window, for apps that expose no accessibility tree."""
+    if not (D.tesseract and HAVE_PIL and D.cap and D.cap.can_window):
+        return None
+    w = D.find_window(**window) if isinstance(window, dict) else D.find_window(id=window)
+    im = D.cap.window(w["id"])
+    out = []
+    for words in ocr_lines(im).values():
+        line = " ".join(x[0] for x in words if x[5] > 40).strip()
+        if line:
+            out.append(line)
+    return "\n".join(out)[:max_chars]
+
+
+def find_text(query, monitor=None, max_results=10, window=None):
     if not D.tesseract:
         raise RuntimeError("tesseract not installed")
     if not HAVE_PIL:
         raise RuntimeError("find_text needs python-pillow")
     from PIL import ImageOps
     D.wl()
-    o = D.output(monitor)
-    with D._hidden_overlay():
-        im = D._grab_output(o, False)
+    if window:
+        w = D.find_window(**window) if isinstance(window, dict) else D.find_window(id=window)
+        D.policy.require(w["app"], "view", w["title"])
+        im = D.cap.window(w["id"])
+        o = _Box(None, w["x"], w["y"], w["width"], w["height"])
+    else:
+        o = D.output(monitor)
+        with D._hidden_overlay():
+            im = D._grab_output(o, False)
     iw, ih = im.size
     g = im.convert("L")
     if sum(g.resize((64, 64)).getdata()) / 4096 < 110:
@@ -1765,7 +1921,7 @@ def find_text(query, monitor=None, max_results=10):
              float(f[10])))
     fx, fy = o.width / iw, o.height / ih
     q = query.lower().strip()
-    sp = D.shot_space if (D.shot_space and D.shot_space.output == o.name) else None
+    sp = D.shot_space if (D.shot_space and o.name and D.shot_space.output == o.name) else None
     hits = []
     for words in lines.values():
         best = None

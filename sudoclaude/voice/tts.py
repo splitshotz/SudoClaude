@@ -22,6 +22,9 @@ def speakable(text):
     return text
 
 
+TAGS = re.compile(r"\[(laugh|chuckle|sigh|gasp|cough|groan|sniff|clear throat)\]", re.I)
+
+
 class Kokoro:
     sr = 24000
 
@@ -39,6 +42,9 @@ class Kokoro:
         self.voice, self.speed = voice, speed
 
     def __call__(self, text):
+        text = TAGS.sub("", text).strip()
+        if not text:
+            return np.zeros(1, dtype=np.float32)
         audio, sr = self.k.create(text, voice=self.voice, speed=self.speed,
                                   lang="en-gb" if self.voice[:1] == "b" else "en-us")
         return resample(np.asarray(audio, dtype=np.float32), sr)
