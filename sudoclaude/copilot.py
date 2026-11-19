@@ -20,6 +20,7 @@ class Copilot:
         self.d = desk
         self.enabled = True
         self.ptr_set = None
+        self.last_obs = None
         self.user_seen = 0.0
         self.lease = None
         self.claude_win = None
@@ -37,11 +38,12 @@ class Copilot:
 
     def observe(self):
         cur = self.d.cursor()
-        if cur and self.ptr_set and abs(cur[0] - self.ptr_set[0]) + abs(cur[1] - self.ptr_set[1]) > 3:
+        ref = self.ptr_set or self.last_obs
+        if cur and ref and abs(cur[0] - ref[0]) + abs(cur[1] - ref[1]) > 3:
             self.user_seen = time.time()
             self.ptr_set = None
-            if self.lease:
-                self.lease = None
+            self.lease = None
+        self.last_obs = tuple(cur) if cur else None
         return cur
 
     def user_present(self):
@@ -56,8 +58,13 @@ class Copilot:
         """Called before Claude moves the pointer to `target` (a window dict or None)."""
         self.cancel_restore()
         cur = self.observe()
-        if not (self.enabled and self._hypr() and self.user_present()):
+        if not (self.enabled and self._hypr()):
             return
+        if not self.user_present():
+            time.sleep(0.1)
+            cur = self.observe()
+            if not self.user_present():
+                return
         still_since, last = time.time(), cur
         deadline = time.time() + WAIT_MAX_S
         while time.time() < deadline:
@@ -84,6 +91,11 @@ class Copilot:
             self.claude_at = time.time()
 
     def end_call(self):
+        cur = self.d.cursor() if self.comp else None
+        if cur and self.ptr_set is not None and self.d.held_buttons:
+            self.ptr_set = tuple(cur)
+        elif self.ptr_set is None:
+            self.last_obs = tuple(cur) if cur else None
         if self.lease and not self.d.held_buttons:
             self.cancel_restore()
             self.timer = threading.Timer(RESTORE_AFTER_S, self.restore)
@@ -101,9 +113,9 @@ class Copilot:
                 return
             try:
                 self.d.wl()
+                self.comp.focus_window(lease["win"])
                 self.d.ptr.move_to(*lease["pos"])
                 self.d.sync()
-                self.comp.focus_window(lease["win"])
                 self.ptr_set = lease["pos"]
                 self.restored_at = time.time()
             except Exception:
@@ -142,10 +154,32 @@ class Copilot:
                 return str(i)
         return "special:claude"
 
+    def _keep_focus(self, prev, new):
+        """Some apps grab focus despite the rule (they fork, or ask to be activated).
+        Hand it straight back."""
+        time.sleep(0.15)
+        try:
+            if (self.comp.j("activewindow") or {}).get("address") in new:
+                with self.d.lock:
+                    pos = self.d.cursor()
+                    self.comp.focus_window(prev)
+                    if pos:
+                        self.d.wl()
+                        self.d.ptr.move_to(*pos)
+                        self.d.sync()
+                        self.ptr_set = tuple(pos)
+        except Exception:
+            pass
+
     def forget(self):
         self.claude_win = None
 
     def track_new(self, before_ids, background, timeout=8.0):
+        try:
+            prev = (self.comp.j("activewindow") or {}).get("address") if background else None
+        except Exception:
+            prev = None
+
         def run():
             end = time.time() + timeout
             while time.time() < end:
@@ -155,6 +189,8 @@ class Copilot:
                 except Exception:
                     continue
                 if new:
+                    if prev:
+                        self._keep_focus(prev, new)
                     self.claude_windows.update(new)
                     self.claude_win, self.claude_at = new[0], time.time()
                     if background:

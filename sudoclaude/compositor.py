@@ -367,6 +367,10 @@ class Hyprland:
     def launch(self, cmd, rules=None):
         if self.lua:
             extra = f", {lua_value(rules)}" if rules else ""
+            # Rules attach to the spawned PID, so the shell has to exec the app
+            # rather than fork it.
+            if rules and not any(ch in cmd for ch in ";&|<>`$(") and not cmd.startswith("exec "):
+                cmd = "exec " + cmd
             return self._dsp(f"hl.dsp.exec_cmd({lua_str(cmd)}{extra})")
         if rules:
             parts = []
