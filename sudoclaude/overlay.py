@@ -26,6 +26,13 @@ class Overlay:
         self.error = None
         self._lock = threading.Lock()
         self.state = {}
+        try:
+            with open(os.path.expanduser("~/.config/sudoclaude/config.json")) as f:
+                style = json.load(f).get("overlay_style")
+            if style:
+                self.state["style"] = style
+        except (OSError, ValueError):
+            pass
 
     @property
     def available(self):
