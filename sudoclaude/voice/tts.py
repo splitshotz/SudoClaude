@@ -98,7 +98,9 @@ class Mouth:
 
     def __init__(self, engine, speaker, on_text=None):
         self.engine, self.speaker = engine, speaker
-        self.on_text = on_text or (lambda t: None)
+        # on_text(text, at, seconds, gen): this sentence starts being heard at
+        # `at` and lasts `seconds`.
+        self.on_text = on_text or (lambda *a: None)
         self.q = queue.Queue()
         self.gen = 0
         self.pending = 0
@@ -117,9 +119,10 @@ class Mouth:
                 audio = self.engine(speakable(text))
                 if gen != self.gen:
                     continue
-                self.on_text(text)
                 tail = np.zeros(int(OUT_RATE * 0.12), dtype=np.float32)
-                self.speaker.say(np.concatenate([audio, tail]))
+                self.speaker.say(np.concatenate([audio, tail]),
+                                 on_start=lambda at, secs, t=text, g=gen:
+                                 self.on_text(t, at, len(audio) / OUT_RATE, g))
             except Exception:
                 pass
             finally:

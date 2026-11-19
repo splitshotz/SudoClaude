@@ -12,6 +12,7 @@ Item {
     property bool idle: false
     property bool running: true
     property string subtitle: ""
+    property string who: "you"
     property string voice: ""
     property real level: 0
     property bool solid: false
@@ -122,9 +123,16 @@ Item {
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
                     text: pill.subtitle
-                    color: pill.fgDim
+                    // Yours is quieter, Claude's is the full label color warmed a
+                    // touch toward its orange, tool activity is dim italic.
+                    color: pill.who === "claude" ? pill.blend(pill.fg, pill.accent, 0.22)
+                         : pill.who === "tool" ? Qt.rgba(pill.fgDim.r, pill.fgDim.g, pill.fgDim.b, 0.8)
+                         : pill.fgDim
+                    Behavior on color { ColorAnimation { duration: 200 } }
                     font.family: pill.fontFamily
                     font.pixelSize: 14
+                    font.weight: pill.who === "claude" ? Font.Medium : Font.Normal
+                    font.italic: pill.who === "tool"
                 }
                 opacity: pill.subtitle.length && !pill.typing ? 1 : 0
                 Behavior on opacity { NumberAnimation { duration: 180 } }

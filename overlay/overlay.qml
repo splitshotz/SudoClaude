@@ -29,6 +29,11 @@ ShellRoot {
     property string style: "hairline"
     property var pal: ({})
     property bool typing: false
+    // Whose words the transcript is: "you", "claude", or "tool" for activity.
+    property string who: "you"
+    // A typed conversation's reply, shown in a bubble by the pill.
+    property string reply: ""
+    property bool bubble: false
     property string winId: ""
     property real screenRadius: 23
     property real windowRadius: 18
@@ -99,7 +104,7 @@ ShellRoot {
     function handle(m) {
         for (const k of ["active", "capturing", "stopped", "idle", "status", "detail", "action",
                          "mode", "side", "winX", "winY", "winW", "winH", "voice", "transcript",
-                         "level", "style", "typing", "winId", "screenRadius", "windowRadius"]) {
+                         "level", "style", "typing", "winId", "screenRadius", "windowRadius", "who", "reply", "bubble"]) {
             if (m[k] !== undefined) shell[k] = m[k]
         }
         if (m.screen !== undefined) shell.focusScreen = m.screen
@@ -203,7 +208,10 @@ ShellRoot {
             WlrLayershell.namespace: "claude-cu-glass"
             WlrLayershell.keyboardFocus: shell.typing && here ? WlrKeyboardFocus.Exclusive
                                                                : WlrKeyboardFocus.None
-            property Region pillRegion: Region { item: stage.pill }
+            property Region pillRegion: Region {
+                item: stage.pill
+                Region { item: stage.bubble.visible ? stage.bubble : null }
+            }
             property Region noRegion: Region {}
             mask: stage.on ? pillRegion : noRegion
 
@@ -315,7 +323,10 @@ ShellRoot {
                 pill.pal: shell.pal
                 pill.status: shell.status
                 pill.detail: shell.detail
+                replyText: shell.reply
+                replyShown: shell.bubble
                 pill.subtitle: shell.transcript
+                pill.who: shell.who
                 pill.voice: shell.voice
                 pill.level: shell.level
                 pill.stopped: shell.stopped
