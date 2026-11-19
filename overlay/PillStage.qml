@@ -149,8 +149,6 @@ Item {
         appear: fade
         backdrop: stage.backdrop
         mode: stage.mode
-        bLo: stage.lumLo
-        bHi: stage.lumHi
         onStopRequested: stage.stopRequested()
         onTyped: t => stage.typed(t)
         opacity: stage.capturing ? 0 : fade

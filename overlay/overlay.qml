@@ -40,6 +40,25 @@ ShellRoot {
         return !Hyprland.toplevels.values.some(t => String(t.address).replace(/^0x/, "") === id)
     }
 
+    // end-4 keeps the wallpaper path in its config; the glass needs it to show
+    // what's behind windows.
+    property string wallpaper: ""
+    function findKey(o, key) {
+        if (!o || typeof o !== "object") return ""
+        if (typeof o[key] === "string") return o[key]
+        for (const k in o) { const r = findKey(o[k], key); if (r) return r }
+        return ""
+    }
+    FileView {
+        path: Quickshell.env("HOME") + "/.config/illogical-impulse/config.json"
+        watchChanges: true
+        printErrors: false
+        onFileChanged: reload()
+        onLoaded: {
+            try { shell.wallpaper = shell.findKey(JSON.parse(text()), "wallpaperPath") } catch (e) {}
+        }
+    }
+
     FileView {
         id: posFile
         path: Quickshell.env("HOME") + "/.local/state/sudoclaude/pill.json"
@@ -195,13 +214,61 @@ ShellRoot {
             }
             Component.onCompleted: Hyprland.refreshMonitors()
 
-            // What's behind the pill, for the glass edge to bend: one live stream
-            // while the pill is up, nothing otherwise.
-            ScreencopyView {
+            // What's really behind the pill: the wallpaper and live captures of the
+            // windows on this workspace. Window captures never include overlay
+            // layers, so the glass can read straight through without seeing
+            // itself. Off while a fullscreen app has the pill in the corner.
+            readonly property var hmon: Hyprland.monitorFor(modelData)
+            readonly property bool glassUp: (stage.on || stage.pill.opacity > 0.01) && shell.mode !== "corner"
+            readonly property bool glassy: glassUp && stage.on && !shell.capturing
+            readonly property var behindWindows: {
+                const m = pillWin.hmon
+                const ws = m && m.activeWorkspace ? m.activeWorkspace.id : null
+                if (ws === null) return []
+                const list = Hyprland.toplevels.values.filter(t => {
+                    const o = t.lastIpcObject
+                    return t.wayland && o && o.at && o.size && !o.hidden && o.mapped !== false
+                        && ((o.workspace && o.workspace.id === ws) || o.pinned)
+                })
+                return list.sort((a, b) => (a.lastIpcObject.floating ? 1 : 0)
+                                         - (b.lastIpcObject.floating ? 1 : 0))
+            }
+            // Rebuild the capture list only when the set of windows changes;
+            // positions update in place.
+            readonly property string behindKey: behindWindows.map(t => t.address).join(",")
+            property var behindList: []
+            onBehindKeyChanged: behindList = behindWindows
+            Timer {
+                // Window positions only refresh on request.
+                interval: 1000
+                repeat: true
+                triggeredOnStart: true
+                running: pillWin.glassUp
+                onTriggered: Hyprland.refreshToplevels()
+            }
+            Item {
                 id: behind
                 anchors.fill: parent
-                captureSource: pillWin.modelData
-                live: stage.on && !shell.capturing
+                Image {
+                    anchors.fill: parent
+                    source: shell.wallpaper ? "file://" + shell.wallpaper : ""
+                    fillMode: Image.PreserveAspectCrop
+                    sourceSize: Qt.size(pillWin.width, pillWin.height)
+                    asynchronous: true
+                }
+                Repeater {
+                    model: pillWin.glassUp ? pillWin.behindList : []
+                    ScreencopyView {
+                        required property var modelData
+                        readonly property var o: modelData.lastIpcObject || ({})
+                        x: (o.at ? o.at[0] : 0) - pillWin.modelData.x
+                        y: (o.at ? o.at[1] : 0) - pillWin.modelData.y
+                        width: o.size ? o.size[0] : 0
+                        height: o.size ? o.size[1] : 0
+                        captureSource: modelData.wayland
+                        live: pillWin.glassy
+                    }
+                }
             }
             ShaderEffectSource {
                 id: behindTex
@@ -237,12 +304,13 @@ ShellRoot {
             PillStage {
                 id: stage
                 anchors.fill: parent
-                backdrop: behindTex
+                backdrop: shell.mode !== "corner" ? behindTex : null
                 insets: pillWin.reserved
-                on: pillWin.here && shell.present && shell.mode !== "corner"
+                on: pillWin.here && shell.present
                 visible: on || pill.opacity > 0.01
                 capturing: shell.capturing
-                at: shell.pillAt
+                // Over fullscreen apps and games it keeps to the top right corner.
+                at: shell.mode === "corner" ? "top-right" : shell.pillAt
                 onMoved: at => shell.savePill(at)
                 pill.pal: shell.pal
                 pill.status: shell.status
@@ -256,43 +324,6 @@ ShellRoot {
                 pill.typing: shell.typing && pillWin.here
                 onStopRequested: shell.send({ event: "stop" })
                 onTyped: text => { shell.typing = false; shell.send({ event: "typed", text: text }) }
-            }
-        }
-    }
-
-    Variants {
-        model: Quickshell.screens
-
-        PanelWindow {
-            id: cornerWin
-            required property var modelData
-            screen: modelData
-            readonly property bool here: shell.focusScreen === "" || shell.focusScreen === modelData.name
-            visible: here && shell.mode === "corner" && (shell.present || badge.opacity > 0.01)
-            anchors { top: true; right: true }
-            implicitWidth: 900
-            implicitHeight: 140
-            exclusionMode: ExclusionMode.Ignore
-            color: "transparent"
-            WlrLayershell.layer: WlrLayer.Overlay
-            WlrLayershell.namespace: "claude-cu-corner"
-            WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
-            mask: Region { item: badge.pillItem }
-
-            CornerBadge {
-                id: badge
-                anchors.fill: parent
-                shown: shell.present && shell.mode === "corner"
-                pal: shell.pal
-                capturing: shell.capturing
-                status: shell.status
-                detail: shell.detail
-                transcript: shell.transcript
-                voice: shell.voice
-                level: shell.level
-                stopped: shell.stopped
-                idle: shell.idle
-                onStopRequested: shell.send({ event: "stop" })
             }
         }
     }

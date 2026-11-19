@@ -33,11 +33,9 @@ Item {
     readonly property color surface: c("surface_container_highest", "#343536")
     // Light glass with dark labels over bright content, dark glass with light
     // labels otherwise, like Apple's small glass controls. `mode` crossfades
-    // between them; bLo/bHi are the darkest and brightest things around.
+    // between them.
     property real mode: 0
-    property real bLo: 0.1
-    property real bHi: 0.1
-    readonly property real lightEased: glass.visible && !solid ? mode * mode * (3 - 2 * mode) : 0
+    readonly property real lightEased: !solid ? mode * mode * (3 - 2 * mode) : 0
     function blend(a, b, t) {
         const x = Qt.lighter(a, 1.0), y = Qt.lighter(b, 1.0)
         return Qt.rgba(x.r + (y.r - x.r) * t, x.g + (y.g - x.g) * t,
@@ -58,31 +56,20 @@ Item {
 
     Glass {
         id: glass
-        anchors.fill: parent
+        visible: !pill.solid
         backdrop: pill.backdrop
         target: pill
-        band: (pill.lifted ? 11 : 8) * pill.appear
+        band: (pill.lifted ? 13 : 10) * pill.appear
         Behavior on band { NumberAnimation { duration: 180 } }
         tilt: pill.tilt
         mode: pill.mode
-        bLo: pill.bLo
-        bHi: pill.bHi
         tintColor: pill.surface
-        tintAlpha: pill.lifted ? 0.4 : 0.32
-        Behavior on tintAlpha { NumberAnimation { duration: 160 } }
     }
-    // Without a live backdrop (or when a solid pill is wanted) a plain tint
-    // does the job and the compositor blur shows through it.
     Rectangle {
-        visible: pill.backdrop === null || pill.solid
+        visible: pill.solid
         anchors.fill: parent
         radius: height / 2
-        // One tint over both the blurred middle and the lens rim, so they read
-        // as the same piece of glass.
-        color: Qt.rgba(pill.surface.r, pill.surface.g, pill.surface.b,
-                       pill.solid ? 0.92 : pill.lifted ? 0.34 : 0.26)
-        Behavior on color { ColorAnimation { duration: 160 } }
-        border.width: 0
+        color: Qt.rgba(pill.surface.r, pill.surface.g, pill.surface.b, 0.92)
     }
 
     Item {
@@ -180,8 +167,10 @@ Item {
                 width: stopRow.implicitWidth + 24
                 radius: stopMouse.pressed ? 9 : stopMouse.containsMouse ? 12 : height / 2
                 Behavior on radius { SpringAnimation { spring: 6; damping: 0.5 } }
-                readonly property color base: stopMouse.containsMouse ? Qt.lighter(pill.tonal, 1.25) : pill.tonal
-                color: Qt.rgba(base.r, base.g, base.b, pill.solid ? 1 : 0.62)
+                // A lighter (or darker) layer of the same glass rather than a solid chip.
+                readonly property real lift: stopMouse.containsMouse ? 0.07 : 0
+                color: pill.solid ? pill.tonal
+                     : pill.blend(Qt.rgba(1, 1, 1, 0.13 + lift), Qt.rgba(0, 0, 0, 0.07 + lift), pill.lightEased)
                 Behavior on color { ColorAnimation { duration: 140 } }
                 scale: stopMouse.pressed ? 0.95 : 1
                 Behavior on scale { SpringAnimation { spring: 7; damping: 0.5 } }
