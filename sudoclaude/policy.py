@@ -349,6 +349,12 @@ class Policy:
                 pass
             self.lock_fd = None
 
+    def _notify_ok(self):
+        # The overlay already shows when Claude starts and stops; popups on top of
+        # it are noise unless asked for.
+        n = self.cfg.get("notifications")
+        return n == "always" or (n and not getattr(self, "quiet", False))
+
     def activate(self):
         self.active = True
         self.activated_at = time.time()
@@ -357,7 +363,7 @@ class Policy:
                 self.comp.esc_listen(ABORT_FILE)
             except Exception:
                 pass
-        if self.cfg.get("notifications"):
+        if self._notify_ok():
             notify("Claude is using your computer", "Press Esc to stop")
         for cb in self.on_activate:
             try:
@@ -372,7 +378,7 @@ class Policy:
             self.active = False
             self._unbind_esc()
             self._release_lock()
-            if self.cfg.get("notifications"):
+            if self._notify_ok():
                 notify("Claude stopped" if stopped else "Claude is done using your computer",
                        "Control returned to you" if stopped else "")
             for cb in self.on_deactivate:
