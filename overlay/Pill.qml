@@ -12,6 +12,10 @@ Item {
     property bool stopped: false
     property bool idle: false
     property bool running: true
+    property string subtitle: ""
+    property string voice: ""
+    property real level: 0
+    property bool solid: false
     property Item backdrop: null
     signal stopRequested()
 
@@ -77,7 +81,7 @@ Item {
         Rectangle {
             anchors.fill: parent
             radius: pill.r
-            color: Qt.rgba(0.11, 0.095, 0.085, 0.52)
+            color: Qt.rgba(0.11, 0.095, 0.085, pill.solid ? 0.78 : 0.52)
         }
         // warm light bleeding up from the bottom edge
         Rectangle {
@@ -143,7 +147,30 @@ Item {
         x: 16
         spacing: 10
 
+        Row {
+            visible: pill.voice === "listening"
+            spacing: 2.5
+            anchors.verticalCenter: parent.verticalCenter
+            Repeater {
+                model: 4
+                Rectangle {
+                    required property int index
+                    property real phase: 0
+                    width: 3
+                    radius: 1.5
+                    anchors.verticalCenter: parent.verticalCenter
+                    height: 4 + 12 * Math.min(1, pill.level * (0.6 + 0.4 * Math.abs(Math.sin(phase + index * 1.3))))
+                    Behavior on height { NumberAnimation { duration: 90 } }
+                    color: pill.accent
+                    NumberAnimation on phase {
+                        running: pill.voice === "listening"
+                        from: 0; to: Math.PI * 2; duration: 900; loops: Animation.Infinite
+                    }
+                }
+            }
+        }
         Item {
+            visible: pill.voice !== "listening"
             width: 10; height: 10
             anchors.verticalCenter: parent.verticalCenter
             Rectangle {
@@ -175,6 +202,16 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             style: Text.Raised
             styleColor: Qt.rgba(0, 0, 0, 0.18)
+        }
+        Text {
+            visible: pill.subtitle.length > 0
+            text: pill.subtitle
+            width: Math.min(implicitWidth, 560)
+            elide: pill.voice === "listening" ? Text.ElideLeft : Text.ElideRight
+            color: Qt.rgba(1, 1, 1, 0.62)
+            font.family: pill.fontFamily
+            font.pixelSize: 13
+            anchors.verticalCenter: parent.verticalCenter
         }
         Rectangle {
             width: 1; height: 16
