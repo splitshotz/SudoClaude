@@ -292,7 +292,8 @@ class Hyprland:
                   "no_screen_share": True, "no_anim": True, "blur": True,
                   "ignore_alpha": 0.05},
                  {"name": "sudoclaude-corner", "match": {"namespace": "^claude-cu-corner$"},
-                  "no_screen_share": True, "no_anim": True}]
+                  "no_screen_share": True, "no_anim": True, "blur": True,
+                  "ignore_alpha": 0.05}]
         if in_captures:
             for r in rules:
                 r["no_screen_share"] = False

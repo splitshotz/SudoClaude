@@ -117,6 +117,7 @@ class Assistant:
         self.cancel = threading.Event()
         self.ring = collections.deque(maxlen=int(3.0 / CHUNK_S))
         self.shown = False
+        self.t_ask = 0.0
 
         sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
         from sudoclaude.compositor import detect
@@ -182,6 +183,9 @@ class Assistant:
         self.agent.interrupt()
 
     def on_spoken(self, text):
+        if self.t_ask:
+            log(f"first audio {time.time() - self.t_ask:.2f}s after the request")
+            self.t_ask = 0.0
         self.ui(voice="speaking", status="Claude", transcript=text)
 
     def on_auth(self):
@@ -365,6 +369,7 @@ class Assistant:
                 return self.finish()
             tag = "(interrupting) " if interrupting else "(follow-up) " if followup else ""
             log("ask:", tag + text)
+            self.t_ask = self.t_ask or time.time()
             self.ui(voice="thinking", status="Thinking", transcript=text)
             result = {}
             worker = threading.Thread(target=lambda: result.update(r=self.agent.ask(tag + text)),
@@ -449,6 +454,7 @@ class Assistant:
     def run(self):
         self.mic.start()
         threading.Thread(target=self.agent.warm, daemon=True).start()
+        threading.Thread(target=self.agent.keep_warm, daemon=True).start()
         log("ready")
         while not self.stopped.is_set():
             try:

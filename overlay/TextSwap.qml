@@ -30,17 +30,21 @@ Item {
     onTextChanged: swap(text)
     Component.onCompleted: a.text = text
 
+    // Inline components can't see this file's ids, so styling is bound here.
     component Line: Text {
-        color: sw.color
-        font.family: sw.family
-        font.pixelSize: sw.pixelSize
-        font.weight: sw.weight
         anchors.verticalCenter: parent.verticalCenter
         property real dy: 0
         transform: Translate { y: dy }
     }
-    Line { id: a }
-    Line { id: b; opacity: 0 }
+    Line {
+        id: a
+        color: sw.color; font.family: sw.family; font.pixelSize: sw.pixelSize; font.weight: sw.weight
+    }
+    Line {
+        id: b
+        opacity: 0
+        color: sw.color; font.family: sw.family; font.pixelSize: sw.pixelSize; font.weight: sw.weight
+    }
 
     ParallelAnimation {
         id: enter

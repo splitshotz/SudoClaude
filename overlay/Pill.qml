@@ -21,7 +21,7 @@ Item {
 
     function c(key, fallback) { return pal && pal[key] ? pal[key] : fallback }
     readonly property color accent: "#D97757"
-    readonly property color surface: c("surface_container_high", "#2a2a2b")
+    readonly property color surface: c("surface_container_highest", "#343536")
     readonly property color onSurface: c("on_surface", "#e4e2e3")
     readonly property color onSurfaceVariant: c("on_surface_variant", "#c8c6c7")
     readonly property color outline: c("outline_variant", "#474748")
@@ -38,7 +38,8 @@ Item {
     Rectangle {
         anchors.fill: parent
         radius: height / 2
-        color: Qt.rgba(pill.surface.r, pill.surface.g, pill.surface.b, pill.solid ? 0.94 : 0.72)
+        // Translucent: the compositor blurs whatever is behind it.
+        color: Qt.rgba(pill.surface.r, pill.surface.g, pill.surface.b, pill.solid ? 0.92 : 0.5)
         border.width: 1
         border.color: Qt.rgba(pill.outline.r, pill.outline.g, pill.outline.b, 0.55)
     }

@@ -26,6 +26,7 @@ What you can do:
 - You control his desktop through the sudoclaude tools: open apps, switch workspaces, click, type, read screens and windows. Act without asking for confirmation on ordinary tasks; the tool itself prompts for anything sensitive.
 - He may be working at the same time. Leave his focused window alone. Open what you need on a free workspace or beside him (the desktop tool's launch action with a target workspace does this without stealing focus), and prefer background-safe actions (ui tree/act, key with window) over taking his cursor.
 - If he's in a fullscreen game or video, never put windows on his workspace. Work on another one.
+- You're the fast conversational voice (Sonnet). For hard or long technical work (coding, Blender, Unity, debugging, multi-step research, anything that needs careful thinking) or whenever he asks for Opus, hand it to the deep-work agent with the Agent/Task tool and tell him in a few words that you're on it. Keep simple things yourself.
 - Music means Apple Music in Cider: use the sudoclaude music tool, never click around Cider.
 - You can also run shell commands and search the web when that's faster than clicking.
 """
@@ -114,20 +115,38 @@ class Agent:
             cwd=os.path.expanduser("~"),
             setting_sources=["user"],
         )
-        if self.cfg.get("model"):
-            opts["model"] = self.cfg["model"]
+        opts["model"] = self.cfg.get("model") or "sonnet"
+        opts["effort"] = self.cfg.get("effort", "low")
+        from claude_agent_sdk import AgentDefinition
+        opts["agents"] = {
+            "deep-work": AgentDefinition(
+                description="Hard or long technical work on Andrew's desktop: coding, Blender, "
+                            "Unity, debugging, multi-step research, or anything he asks Opus for.",
+                prompt="You're doing a demanding task on Andrew's Linux desktop (Hyprland) "
+                       "through the sudoclaude tools and the shell. Work carefully and finish it. "
+                       "Your final message is read aloud to him, so end with one or two plain "
+                       "spoken sentences on what you did or what's needed from him.",
+                model=self.cfg.get("deep_model", "opus"),
+                effort="high"),
+        }
         cli = find_cli()
         if cli:
             opts["cli_path"] = cli
-        try:
-            return ClaudeAgentOptions(**opts)
-        except TypeError:
-            opts.pop("setting_sources", None)
-            return ClaudeAgentOptions(**opts)
+        for _ in range(4):
+            try:
+                return ClaudeAgentOptions(**opts)
+            except TypeError as e:
+                bad = next((k for k in ("effort", "setting_sources", "agents") if k in str(e)), None)
+                if not bad:
+                    raise
+                opts.pop(bad, None)
+        return ClaudeAgentOptions(**opts)
+
+    def stale(self):
+        return time.time() - self.last_used > self.cfg.get("memory_minutes", 10) * 60
 
     async def _ensure(self):
-        stale = time.time() - self.last_used > self.cfg.get("memory_minutes", 10) * 60
-        if self.client and stale:
+        if self.client and self.stale():
             await self._close()
         if not self.client:
             from claude_agent_sdk import ClaudeSDKClient
@@ -153,8 +172,19 @@ class Agent:
         streamed = False
         full = []
 
+        spoke = False
+
         def flush(final=False):
-            nonlocal pending
+            nonlocal pending, spoke
+            # Get the first words out fast: speak the opening clause on its own.
+            if not spoke and not final and len(pending) > 24:
+                m = re.match(r"(.{12,}?[,;:—])\s", pending)
+                if m:
+                    said = clean_for_speech(m.group(1))
+                    pending = pending[m.end():]
+                    if said and not self._interrupted:
+                        spoke = True
+                        self.on_sentence(said)
             if AUTH.search(pending) and len(full) <= 2:
                 pending = ""
                 self._interrupted = True
@@ -169,6 +199,7 @@ class Agent:
                 said = clean_for_speech(m.group(1))
                 pending = pending[m.end():]
                 if said and not self._interrupted:
+                    spoke = True
                     self.on_sentence(said)
             if final and pending.strip() and not self._interrupted:
                 said = clean_for_speech(pending)
@@ -227,6 +258,15 @@ class Agent:
                 asyncio.run_coroutine_threadsafe(self.client.interrupt(), self.loop).result(3)
             except Exception:
                 pass
+
+    def keep_warm(self):
+        """Starting the CLI takes seconds, so a fresh session is opened in the
+        background as soon as the old one goes stale, not when he next talks."""
+        while True:
+            time.sleep(30)
+            if not self.busy and self.client and self.stale():
+                self.log("conversation went stale; starting a fresh session")
+                self.warm()
 
     def warm(self):
         try:
