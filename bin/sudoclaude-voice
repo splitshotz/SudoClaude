@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+here="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+venv="${SUDOCLAUDE_VENV:-$HOME/.local/share/sudoclaude/venv}"
+cd "$here" && exec "$venv/bin/python" -m sudoclaude.voice "$@"
