@@ -31,7 +31,7 @@ There are seven tools:
 - `computer` covers the screen, mouse and keyboard. It uses the same action names as Claude's own computer use, and it takes a whole list of actions at once, so Claude can plan a sequence of moves and run it in one go instead of checking after every step.
 - `open_application` opens anything with a .desktop entry by name, or focuses it if it's already running, and waits for the window.
 - `desktop` handles Hyprland: workspaces (special ones too), windows, monitors, launching commands, the clipboard, and my keybinds with the same labels the Super+/ cheatsheet shows. Those come from the live config, so if I change a bind it picks that up.
-- `ui` reads an app's real interface through AT-SPI (buttons, fields, menus, tabs with their labels and positions) and can press, fill in or toggle things without touching the mouse. It also has OCR for apps that don't expose anything.
+- `ui` reads an app's real interface through AT-SPI (buttons, fields, menus, tabs with their labels and positions) and can press, fill in or toggle things without touching the mouse. Its `see` action is how Claude usually looks at an app: one capture of that window, even if it's behind something or on another workspace, with every control boxed and numbered, like the macOS and Windows versions of computer use. When an app draws its own UI and exposes nothing, the numbers come from OCR'd text instead. GTK, Qt, Firefox-based browsers like Zen, and Electron apps all work this way, so it isn't tied to one browser.
 - `browser` uses Chromium tabs directly through the extension (see Browser below).
 - `music` controls Apple Music in Cider without touching its window.
 - `access` is for the few sensitive apps that need a yes from me first.
