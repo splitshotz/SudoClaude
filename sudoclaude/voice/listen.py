@@ -94,7 +94,7 @@ class Endpointer:
     """Collects speech until the speaker is done. Waits longer when the words
     so far trail off mid-thought ("open discord and...")."""
 
-    def __init__(self, vad, stt, silence=0.8, long_silence=1.7, max_len=25.0,
+    def __init__(self, vad, stt, silence=0.5, long_silence=1.4, max_len=25.0,
                  start_timeout=None):
         self.vad, self.stt = vad, stt
         self.silence_s, self.long_s, self.max_len = silence, long_silence, max_len
