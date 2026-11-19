@@ -174,6 +174,23 @@ class Copilot:
     def forget(self):
         self.claude_win = None
 
+    def preselect_away(self):
+        """Dwindle splits toward the cursor, which would drop Claude's window right
+        under the person's hand. Ask for the other side instead."""
+        try:
+            a = self.comp.j("activewindow") or {}
+            cur = self.d.cursor()
+            if not a or not cur:
+                return
+            (x, y), (w, h) = a["at"], a["size"]
+            if w >= h:
+                d = "l" if cur[0] > x + w / 2 else "r"
+            else:
+                d = "u" if cur[1] > y + h / 2 else "d"
+            self.comp._dsp(f'hl.dsp.layout("preselect {d}")')
+        except Exception:
+            pass
+
     def track_new(self, before_ids, background, timeout=8.0):
         try:
             prev = (self.comp.j("activewindow") or {}).get("address") if background else None

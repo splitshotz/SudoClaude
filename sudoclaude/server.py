@@ -1087,6 +1087,9 @@ class Desktop:
             if ws:
                 rules = {"workspace": ws + " silent", "no_initial_focus": True,
                          "render_unfocused": True}
+                cur_ws = ((c.j("activewindow") or {}).get("workspace") or {}).get("id")
+                if str(cur_ws) == ws:
+                    self.copilot.preselect_away()
         c.launch(apps.launch_command(app), rules)
         deadline = time.time() + wait_ms / 1000
         while time.time() < deadline:
@@ -1525,10 +1528,14 @@ def tool_desktop(a):
             D.comp.overlay_rules(in_captures=on)
         return [txt(f"overlay {'shows' if on else 'hidden'} in screenshots")]
     if act == "reload":
-        D.policy.cleanup()
-        D.overlay.stop()
-        sys.stdout.flush()
-        os.execv(sys.executable, [sys.executable] + sys.argv)
+        def later():
+            time.sleep(0.3)
+            D.policy.cleanup()
+            D.overlay.stop()
+            sys.stdout.flush()
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+        threading.Thread(target=later, daemon=True).start()
+        return [txt("restarting with the latest code")]
     if act == "list_apps":
         q = (a.get("query") or "").lower()
         lst = [x.as_dict() for x in apps.list_apps()
@@ -1616,6 +1623,9 @@ def tool_desktop(a):
             rules["no_initial_focus"] = True
             rules["render_unfocused"] = True
         before = {w["id"] for w in c.windows()}
+        if rules and c.name == "hyprland" and str(tgt) == str(
+                ((c.j("activewindow") or {}).get("workspace") or {}).get("id")):
+            D.copilot.preselect_away()
         c.launch(a["command"], rules or None)
         D.copilot.track_new(before, background=bool(rules))
         if a.get("wait_ms"):
