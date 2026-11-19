@@ -233,6 +233,7 @@ class Ducker:
         self.factor = factor
         self.saved = {}
         self.pactl = shutil.which("pactl")
+        self.lock = threading.Lock()
 
     def _inputs(self):
         r = subprocess.run([self.pactl, "-f", "json", "list", "sink-inputs"],
@@ -240,6 +241,10 @@ class Ducker:
         return json.loads(r.stdout or "[]")
 
     def duck(self):
+        with self.lock:
+            self._duck()
+
+    def _duck(self):
         if not self.pactl or self.saved:
             return
         try:
@@ -260,6 +265,10 @@ class Ducker:
             pass
 
     def restore(self):
+        with self.lock:
+            self._restore()
+
+    def _restore(self):
         if not self.pactl:
             return
         for idx, vols in list(self.saved.items()):

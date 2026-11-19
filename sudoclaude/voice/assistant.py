@@ -78,7 +78,26 @@ def load_config():
     return cfg
 
 
+SOUNDS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sounds")
+_sounds = {}
+
+
 def chime(kind="wake"):
+    path = os.path.join(SOUNDS, f"{kind}.wav")
+    if os.path.exists(path):
+        if kind not in _sounds:
+            import soundfile as sf
+            a, sr = sf.read(path, dtype="float32")
+            if a.ndim > 1:
+                a = a.mean(axis=1)
+            if sr != OUT_RATE:
+                a = np.interp(np.arange(0, len(a), sr / OUT_RATE), np.arange(len(a)), a).astype(np.float32)
+            _sounds[kind] = a
+        return _sounds[kind]
+    return _synth_chime(kind)
+
+
+def _synth_chime(kind):
     t = np.arange(int(OUT_RATE * 0.16)) / OUT_RATE
     notes = (660, 990) if kind == "wake" else (880, 587)
     out = []
@@ -295,9 +314,9 @@ class Assistant:
 
     def wake_ui(self):
         self.shown = True
-        self.ducker.duck()
         if self.cfg.get("chime"):
             self.speaker.say(chime())
+        threading.Thread(target=self.ducker.duck, daemon=True).start()
         place = self.placement()
         self.pick_voice(place)
         self.ui(voice="listening", status="Listening", transcript="", level=0,

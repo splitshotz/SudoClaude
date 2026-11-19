@@ -25,6 +25,9 @@ Item {
     property real winH: 0
     property string voice: ""
     property string style: "hairline"
+    // Match the shell: end-4's fake screen corners and Hyprland's window rounding.
+    property real screenRadius: 23
+    property real windowRadius: 18
     property real topInset: 40
     property string transcript: ""
     property real level: 0
@@ -34,7 +37,7 @@ Item {
 
     readonly property color accent: "#D97757"
     readonly property color accentHi: "#EBA286"
-    readonly property string fontFamily: "Inter"
+    readonly property string fontFamily: "Google Sans Flex"
 
     readonly property real lx: cursorX - originX
     readonly property real ly: cursorY - originY
@@ -124,6 +127,7 @@ Item {
         Behavior on eb { NumberAnimation { duration: 700 } }
         travelling: !root.idle && !root.listenOnly
         level: root.listenOnly ? root.smoothLevel : 0
+        radius: root.screenRadius
     }
     EdgeLine {
         anchors.fill: parent
@@ -131,7 +135,7 @@ Item {
                    ? (root.idle ? 0.6 : 1) : 0
         Behavior on intensity { NumberAnimation { duration: 600; easing.type: Easing.InOutSine } }
         outside: true
-        radius: 14
+        radius: root.windowRadius + 2
         travelling: root.style === "hairline" && !root.idle
         lapSeconds: 8
         rx: root.winX - root.originX - 2
@@ -244,8 +248,8 @@ Item {
         visible: root.cursorHere && root.active && (root.mode === "full" || root.mode === "window")
         x: root.lx
         y: root.ly
-        Behavior on x { NumberAnimation { duration: 300; easing.type: Easing.OutQuint } }
-        Behavior on y { NumberAnimation { duration: 300; easing.type: Easing.OutQuint } }
+        Behavior on x { SpringAnimation { spring: 3.6; damping: 0.5; epsilon: 0.2 } }
+        Behavior on y { SpringAnimation { spring: 3.6; damping: 0.5; epsilon: 0.2 } }
         opacity: root.idle ? 0.75 : 1
         Behavior on opacity { NumberAnimation { duration: 400 } }
 
@@ -299,7 +303,7 @@ Item {
             height: 22
             radius: 11
             width: tagRow.implicitWidth + 18
-            Behavior on width { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
+            Behavior on width { SpringAnimation { spring: 4.5; damping: 0.45; epsilon: 0.3 } }
             color: root.stopped ? "#8C817C" : root.accent
             clip: true
             layer.enabled: true
@@ -341,8 +345,7 @@ Item {
         visible: root.showPill && root.focused && root.mode !== "corner"
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
-        anchors.bottomMargin: 26 + (root.shown ? 0 : -14)
-        Behavior on anchors.bottomMargin { NumberAnimation { duration: 520; easing.type: Easing.OutCubic } }
+        anchors.bottomMargin: 32
         status: root.status
         detail: root.detail
         subtitle: root.transcript

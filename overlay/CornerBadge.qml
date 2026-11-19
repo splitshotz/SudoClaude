@@ -16,35 +16,24 @@ Item {
     signal stopRequested()
     readonly property Item pillItem: pill
 
-    implicitWidth: Math.max(pill.width + 140, 380)
-    implicitHeight: 170
+    property var pal: ({})
+    implicitWidth: 900
+    implicitHeight: 140
 
     property real fade: shown ? 1 : 0
-    Behavior on fade { NumberAnimation { duration: shown ? 450 : 700; easing.type: Easing.OutCubic } }
+    Behavior on fade { NumberAnimation { duration: shown ? 220 : 260; easing.type: Easing.OutCubic } }
     opacity: capturing ? 0 : fade
-
-    MistLayer {
-        anchors.fill: parent
-        halo: true
-        seed: 21.5
-        radius: pill.height / 2
-        spread: 26
-        downscale: 2
-        level: badge.level
-        rx: pill.x
-        ry: pill.y
-        rw: pill.width
-        rh: pill.height
-        intensity: badge.fade * (badge.idle ? 0.55 : 0.85) * (1 + 0.6 * badge.level)
-    }
 
     Pill {
         id: pill
         anchors.right: parent.right
         anchors.rightMargin: 30
         anchors.top: parent.top
-        anchors.topMargin: 74 + (badge.shown ? 0 : -10)
-        Behavior on anchors.topMargin { NumberAnimation { duration: 480; easing.type: Easing.OutCubic } }
+        anchors.topMargin: 58
+        pal: badge.pal
+        transformOrigin: Item.TopRight
+        scale: badge.shown ? 1 : 0.86
+        Behavior on scale { SpringAnimation { spring: 5; damping: 0.38; epsilon: 0.002 } }
         solid: badge.backdrop === null
         status: badge.status
         detail: badge.detail
