@@ -48,9 +48,53 @@ Only one Claude session can drive the desktop at a time.
 
 To stop it, press Esc or click Stop on the pill at the bottom of the screen. The Esc part is a temporary bind that only exists while Claude is working. It doesn't swallow the key and it doesn't change any of your own binds.
 
+## Working next to you
+
+You can keep using the computer while Claude works. When you're active, apps it opens land on your workspace on the side away from your cursor and don't take focus. Keys it sends go to its own window in the background, so your typing never ends up in its window or the other way round. When it really needs the mouse, it waits until your hand stops moving, clicks, then puts the pointer back where you left it and gives focus back to your window.
+
+If you're in a fullscreen game or watching a video, it leaves your workspace alone and works on a free one instead.
+
 ## The overlay
 
-While Claude is working there's a soft orange glow around the edge of the screen, a small cursor of its own with a "Claude" tag that glides to wherever it's clicking, and a glass pill that says what it's doing. It runs on Quickshell as its own layer. Your mouse goes right through it, and it disappears for the instant Claude takes a screenshot so it never confuses itself. The pill gets Hyprland's blur through a layer rule the server adds at runtime, so nothing in your config changes. When Claude goes idle the whole thing fades out and unmaps, so it doesn't get in the way of fullscreen games.
+While Claude is working, a slow orange mist drifts along the edges of the screen, it gets a small cursor of its own with a "Claude" tag, and a glass pill at the bottom says what it's doing. Where it shows depends on what Claude is doing:
+
+- working on your screen: mist on all edges
+- working in a window next to yours: a faint halo around just that window
+- working on the workspace to your left or right: a thin wisp on that edge only
+- you're gaming or watching something fullscreen: only a small pill in the top right corner
+
+It runs on Quickshell as its own layer. Your mouse goes straight through it, and a layer rule keeps it out of screen captures, so Claude never sees it in its own screenshots and it never shows up in your recordings or streams. The pill gets Hyprland's blur from a rule the server adds at runtime, so nothing in your config changes.
+
+## Voice
+
+Say "Claude" and talk. It's a separate service that's off until you set it up:
+
+```sh
+./install-voice.sh
+```
+
+That makes a Python 3.11 environment, downloads the models, adds an echo cancelled mic input to PipeWire (so it can hear you over music and over itself), trains the wake word, and starts a user service. The replies go through Claude Code, so it uses your normal Claude login and plan. If `claude` isn't logged in, run `claude` and then `/login` once.
+
+How it behaves:
+
+- "Claude, open Discord" works in one breath, or say "Claude", wait for the chime, then talk.
+- After it answers, the mic stays open for a few seconds so you can follow up without saying its name again. If what it hears clearly isn't meant for it, it ignores it.
+- Saying "Claude" while it's talking or working interrupts it. Talking over it softens its voice first and only cuts it off if you're actually saying something.
+- Music and videos get turned down while you're talking to it and come back up after.
+- It leaves on its own when you're done, or when you say something like "thanks, that's all".
+- Every wake gets checked against what was actually said before anything happens, so "I asked Claude yesterday" or "the cat clawed it" won't set it off.
+
+Everything you say is transcribed locally with Parakeet. The voice is Chatterbox Turbo on the GPU, and it switches to Kokoro on the CPU while a game has focus so your frame rate doesn't drop.
+
+To make the wake word better at your voice, record a few samples and retrain:
+
+```sh
+bin/sudoclaude-voice record     # say "Claude" 12 times
+bin/sudoclaude-voice train
+systemctl --user restart sudoclaude-voice
+```
+
+`bin/sudoclaude-voice samples` renders the same line in every available voice so you can pick one by ear, and `bin/sudoclaude-voice say "hello"` tests the current one. Logs are in `journalctl --user -u sudoclaude-voice`.
 
 ## Config
 
@@ -68,15 +112,25 @@ Settings live in `~/.config/sudoclaude/config.json`:
   "esc_to_stop": true,
   "notifications": true,
   "overlay": true,
-  "idle_seconds": 25
+  "copilot": true,
+  "idle_seconds": 25,
+  "voice": {
+    "tts": "chatterbox",
+    "tts_kokoro": {"voice": "af_heart"},
+    "followup_seconds": 6,
+    "duck": 0.2,
+    "chime": true
+  }
 }
 ```
+
+Start and stop popups only show if the overlay isn't available; set `notifications` to `"always"` to get them anyway. `copilot: false` makes Claude take the mouse and focus like it normally would. In `voice`, `tts` is `chatterbox` or `kokoro`, and a 10 second clip of any voice dropped in `~/.local/share/sudoclaude/models/voices/` can be used with `"tts_chatterbox": {"voice": "clip.wav"}`.
 
 `sensitive` adds your own window classes to the ask-first list, and `denied` blocks apps completely. `approvals` can be `smart` (the default), `strict`, or `off`, which never asks about anything. `tier_overrides` takes `view`, `click` or `full` per window class and mostly matters in strict mode.
 
 ## If something's off
 
-Run the `doctor` tool, or ask Claude to. It reports the compositor, which protocols are there, the overlay and accessibility status, and how long a screenshot takes.
+Ask Claude to run `doctor` (it's an action on the `desktop` tool). It reports the compositor, which protocols are there, the overlay and accessibility status, and how long a screenshot takes.
 
 If Hyprland has `ecosystem:enforce_permissions` on, Python needs screen capture permission:
 
