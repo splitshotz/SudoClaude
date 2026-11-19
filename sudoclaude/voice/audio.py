@@ -156,16 +156,23 @@ class Speaker:
              "--stream-name=sudoclaude-voice"],
             stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
 
-    def say(self, audio):
-        self.q.put((self._gen, np.asarray(audio, dtype=np.float32)))
+    def say(self, audio, on_start=None):
+        """Queue audio. on_start(at, seconds) is told when it will actually be heard
+        (wall clock) and for how long, so captions can follow along."""
+        self.q.put((self._gen, np.asarray(audio, dtype=np.float32), on_start))
 
     def _worker(self):
         while True:
-            gen, audio = self.q.get()
+            gen, audio, on_start = self.q.get()
             if gen != self._gen:
                 continue
             with self._lock:
                 self._open()
+            if on_start:
+                try:
+                    on_start(max(self._busy_until, time.time()) + 0.06, len(audio) / self.rate)
+                except Exception:
+                    pass
             step = self.rate // 25
             for i in range(0, len(audio), step):
                 if gen != self._gen:

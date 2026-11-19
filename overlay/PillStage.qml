@@ -7,6 +7,9 @@ Item {
     id: stage
 
     property alias pill: pill
+    property alias bubble: bubble
+    property string replyText: ""
+    property bool replyShown: false
     property bool on: false
     property bool capturing: false
     property string at: "bottom"
@@ -62,6 +65,12 @@ Item {
     property bool ready: false
     property real tilt: 0
     Behavior on tilt { SpringAnimation { spring: 2.6; damping: 0.25; epsilon: 0.002 } }
+    // Drag velocity, normalised; the glass stretches along it like a droplet
+    // and springs back round when let go.
+    property real vxn: 0
+    property real vyn: 0
+    Behavior on vxn { SpringAnimation { spring: 3.4; damping: 0.22; epsilon: 0.002 } }
+    Behavior on vyn { SpringAnimation { spring: 3.4; damping: 0.22; epsilon: 0.002 } }
     readonly property bool springy: ready && !grab.moving
     Behavior on px { enabled: stage.springy; SpringAnimation { spring: 3.2; damping: 0.3; epsilon: 0.25 } }
     Behavior on py { enabled: stage.springy; SpringAnimation { spring: 3.2; damping: 0.3; epsilon: 0.25 } }
@@ -111,7 +120,10 @@ Item {
             if (trail.length > 1) {
                 const a = trail[0], b = trail[trail.length - 1]
                 const vx = (b.x - a.x) / Math.max(1, b.t - a.t)
+                const vy = (b.y - a.y) / Math.max(1, b.t - a.t)
                 stage.tilt = Math.max(-0.9, Math.min(0.9, vx * 0.35))
+                stage.vxn = Math.max(-1, Math.min(1, vx / 2.2))
+                stage.vyn = Math.max(-1, Math.min(1, vy / 2.2))
             }
         }
         onReleased: {
@@ -134,6 +146,8 @@ Item {
             }
             moving = false
             stage.tilt = 0
+            stage.vxn = 0
+            stage.vyn = 0
             if (best === stage.at) stage.settle()
             else stage.at = best
             stage.moved(best)
@@ -155,16 +169,60 @@ Item {
         onTyped: t => stage.typed(t)
         opacity: stage.capturing ? 0 : fade
         property real fade: stage.on ? 1 : 0
-        Behavior on fade { NumberAnimation { duration: stage.on ? 220 : 260; easing.type: Easing.OutCubic } }
+        Behavior on fade {
+            SpringAnimation { spring: stage.on ? 4.2 : 6; damping: stage.on ? 0.42 : 0.7; epsilon: 0.003 }
+        }
         transformOrigin: stage.fy === 0 ? Item.Top : stage.fy === 1 ? Item.Bottom
                          : stage.fx === 0 ? Item.Left : Item.Right
         scale: !stage.on ? 0.86 : grab.moving ? 1.04 : 1
         Behavior on scale { SpringAnimation { spring: 5; damping: 0.38; epsilon: 0.002 } }
-        transform: Translate {
-            x: stage.on ? 0 : (stage.fy === 0.5 ? (stage.fx === 0 ? -18 : 18) : 0)
-            y: stage.on ? 0 : (stage.fy === 0 ? -18 : stage.fy === 1 ? 18 : 0)
-            Behavior on x { SpringAnimation { spring: 4.5; damping: 0.42 } }
-            Behavior on y { SpringAnimation { spring: 4.5; damping: 0.42 } }
+        transform: [
+            Scale {
+                origin.x: pill.width / 2
+                origin.y: pill.height / 2
+                xScale: 1 + 0.07 * Math.abs(stage.vxn) - 0.035 * Math.abs(stage.vyn)
+                yScale: 1 + 0.10 * Math.abs(stage.vyn) - 0.05 * Math.abs(stage.vxn)
+            },
+            Translate {
+                x: stage.on ? 0 : (stage.fy === 0.5 ? (stage.fx === 0 ? -18 : 18) : 0)
+                y: stage.on ? 0 : (stage.fy === 0 ? -18 : stage.fy === 1 ? 18 : 0)
+                Behavior on x { SpringAnimation { spring: 4.5; damping: 0.42 } }
+                Behavior on y { SpringAnimation { spring: 4.5; damping: 0.42 } }
+            }
+        ]
+    }
+
+    // Typed replies: above the pill when it's at the bottom, below it at the
+    // top, beside it on the sides, lined up with the pill's own edge.
+    Bubble {
+        id: bubble
+        readonly property real gap: 12
+        text: stage.replyText
+        shown: stage.replyShown && stage.on
+        backdrop: stage.backdrop
+        mode: stage.mode
+        surround: stage.lum
+        tilt: stage.tilt
+        textColor: pill.blend(pill.fg, pill.accent, 0.12)
+        fontFamily: pill.fontFamily
+        maxTextWidth: Math.min(460, stage.width * 0.4)
+        maxHeight: Math.min(320, stage.height * 0.4)
+        origin: stage.fy === 1 ? Item.Bottom : stage.fy === 0 ? Item.Top
+              : stage.fx === 0 ? Item.Left : Item.Right
+        x: {
+            const lo = stage.insets[0] + stage.margin
+            const hi = stage.width - stage.insets[2] - stage.margin - width
+            if (stage.fy === 0.5)
+                return stage.fx === 0 ? pill.x + pill.width + gap : pill.x - width - gap
+            const want = pill.x + pill.width * stage.fx - width * stage.fx
+            return Math.max(lo, Math.min(hi, want))
+        }
+        y: {
+            if (stage.fy === 1) return pill.y - height - gap
+            if (stage.fy === 0) return pill.y + pill.height + gap
+            const lo = stage.insets[1] + stage.margin
+            const hi = stage.height - stage.insets[3] - stage.margin - height
+            return Math.max(lo, Math.min(hi, pill.y + pill.height / 2 - height / 2))
         }
     }
 }

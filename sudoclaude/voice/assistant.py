@@ -121,6 +121,10 @@ class Assistant:
         self.shown = False
         self.t_ask = 0.0
         self.phase = ""
+        self.said = []
+        self.text_mode = False
+        self.last_typed = False
+        self.reply_parts = []
         self.manual = threading.Event()
         self.barge = threading.Event()
         self.typing = threading.Event()
@@ -154,7 +158,7 @@ class Assistant:
         self.ducker = Ducker(cfg["duck"])
 
         from .agent import Agent
-        self.agent = Agent(cfg, on_sentence=self.mouth.say, on_tool=self.on_tool, log=log)
+        self.agent = Agent(cfg, on_sentence=self.on_sentence, on_tool=self.on_tool, log=log)
         self.agent.on_auth = self.on_auth
         self.auth_prompted = 0.0
         self.voice_main = self.mouth.engine
@@ -210,11 +214,57 @@ class Assistant:
         self.mouth.stop()
         self.agent.interrupt()
 
-    def on_spoken(self, text):
+    def on_sentence(self, text):
+        """A sentence of the reply: spoken, or, when they typed, added to the text
+        bubble by the pill."""
+        if not self.text_mode:
+            self.mouth.say(text)
+            return
+        from .tts import TAGS
+        if self.t_ask:
+            log(f"first text {time.time() - self.t_ask:.2f}s after the request")
+            self.t_ask = 0.0
+        self.reply_parts.append(TAGS.sub("", text).strip())
+        self.ui(voice="speaking", status="Claude", transcript="", bubble=True,
+                reply=" ".join(p for p in self.reply_parts if p))
+
+    def on_spoken(self, text, at=None, secs=0.0, gen=None):
+        """Caption a sentence in step with the voice: wait until it's actually
+        heard, then reveal it word by word over its length."""
+        threading.Thread(target=self._caption, args=(text, at, secs, gen), daemon=True).start()
+
+    def _caption(self, text, at, secs, gen):
+        from .tts import TAGS
+        words = TAGS.sub("", text).split()
+        if at:
+            time.sleep(max(0.0, at - time.time()))
+        if gen is not None and gen != self.mouth.gen:
+            return
         if self.t_ask:
             log(f"first audio {time.time() - self.t_ask:.2f}s after the request")
             self.t_ask = 0.0
-        self.ui(voice="speaking", status="Claude", transcript=text)
+        before = " ".join(self.said)
+        total = max(1, sum(len(w) + 1 for w in words))
+        span = max(0.2, secs * 0.92)
+        t0, shown = time.time(), -1
+        while True:
+            if gen is not None and gen != self.mouth.gen:
+                return
+            frac = min(1.0, (time.time() - t0) / span)
+            n, acc = 0, 0
+            for w in words:
+                if acc >= frac * total:
+                    break
+                acc += len(w) + 1
+                n += 1
+            if n != shown:
+                shown = n
+                self.ui(voice="speaking", status="Claude", who="claude",
+                        transcript=(before + " " + " ".join(words[:n])).strip())
+            if frac >= 1.0:
+                break
+            time.sleep(0.06)
+        self.said.append(" ".join(words))
 
     def on_auth(self):
         log("claude login expired")
@@ -246,7 +296,7 @@ class Assistant:
 
     def on_tool(self, name):
         short = name.split("__")[-1].replace("_", " ")
-        self.ui(voice="thinking", status="Working", transcript=short)
+        self.ui(voice="thinking", status="Working", transcript=short, who="tool")
 
     # listening ---------------------------------------------------------------
 
@@ -275,7 +325,7 @@ class Assistant:
 
     def capture(self, prefix=None, start_timeout=None, live=True):
         ep = Endpointer(self.vad, self.stt, start_timeout=start_timeout)
-        buf, state = [], {"last": 0.0, "busy": False}
+        buf, state = [], {"last": 0.0, "busy": False, "talking": False, "quiet": 0.0}
 
         def on_chunk(chunk, p):
             self.ring.append(chunk)
@@ -284,7 +334,12 @@ class Assistant:
             if live:
                 self.ui(level=round(lvl, 3))
             now = time.time()
-            if live and p > 0.5 and not state["busy"] and now - state["last"] > 0.7:
+            # Once they start talking, keep re-transcribing a few times a second
+            # (and once more after they pause) so the words keep up with them.
+            if p > 0.5:
+                state["talking"], state["quiet"] = True, now
+            fresh = now - state["quiet"] < 0.6
+            if live and state["talking"] and fresh and not state["busy"] and now - state["last"] > 0.3:
                 state["busy"], state["last"] = True, now
                 snap = np.concatenate((prefix or []) + buf)
 
@@ -292,7 +347,7 @@ class Assistant:
                     try:
                         t = strip_wake(self.stt(snap))
                         if t:
-                            self.ui(transcript=t)
+                            self.ui(transcript=t, who="you")
                     finally:
                         state["busy"] = False
                 threading.Thread(target=partial, daemon=True).start()
@@ -323,16 +378,24 @@ class Assistant:
         except OSError:
             pass
         t0 = time.time()
+        self.last_typed = False
         got = self.capture(**kw)
         if not self.typing.is_set():
             why = ("cancelled" if self.cancel.is_set() else "nothing said" if got is None
                    else "got speech")
             log(f"listen ended after {time.time() - t0:.1f}s: {why}")
             return got
+        return self.wait_typed()
+
+    def wait_typed(self, timeout=300):
+        """Wait for what they type into the pill. Returns (None, text) or None
+        if they cancel or leave it."""
+        self.typing.set()
+        self.ducker.restore()
         while not self.typed.empty():
             self.typed.get_nowait()
         text = None
-        deadline = time.time() + 300
+        deadline = time.time() + timeout
         while text is None and time.time() < deadline and not self.cancel.is_set() \
                 and not self.stopped.is_set():
             try:
@@ -343,6 +406,7 @@ class Assistant:
         self.ui(typing=False)
         self.mic.drain()
         text = (text or "").strip()
+        self.last_typed = bool(text)
         return (None, text) if text else None
 
     def hook_space(self, on):
@@ -386,7 +450,7 @@ class Assistant:
                     log("speech but no words:", repr((got[1] or "")[:40]))
                 return self.finish()
             log("heard:", repr(cmd))
-            return self.converse(cmd)
+            return self.converse(cmd, typed=self.last_typed)
         prefix = self.utterance_prefix()
         strong_hit, heard = bool(strong), ""
         if strong:
@@ -414,12 +478,12 @@ class Assistant:
             self.wake_ui()
         cmd = strip_wake(text)
         if not cmd or len(cmd) < 2:
-            self.ui(voice="listening", status="Listening", transcript="")
+            self.ui(voice="listening", status="Listening", transcript="", who="you")
             got = self.listen(start_timeout=5.0)
             if not got or not got[1]:
                 return self.finish()
             cmd = strip_wake(got[1])
-        self.converse(cmd)
+        self.converse(cmd, typed=self.last_typed)
 
     def wake_ui(self):
         self.shown = True
@@ -430,7 +494,7 @@ class Assistant:
         self.pick_voice(place)
         # stopped/idle belong to computer use; a voice turn always starts fresh.
         self.ui(voice="listening", status="Listening", transcript="", level=0,
-                stopped=False, idle=False,
+                stopped=False, idle=False, who="you",
                 **{k: v for k, v in place.items() if k != "content"})
         # Double-tap Space to type instead, except over fullscreen apps and games.
         self.hook_space(place.get("mode") != "corner")
@@ -469,17 +533,25 @@ class Assistant:
             self.speaker.say(chime("done"))
         return True
 
-    def converse(self, text, followup=False, interrupting=False):
+    def converse(self, text, followup=False, interrupting=False, typed=False):
+        self.text_mode = typed
         if not interrupting and self.fast_music(text):
             return self.finish()
         while text and not self.stopped.is_set():
             if STOP.match(text):
                 log("stop phrase")
                 return self.finish()
-            tag = "(interrupting) " if interrupting else "(follow-up) " if followup else ""
+            tag = ("(interrupting) " if interrupting else "(follow-up) " if followup else "")
+            if self.text_mode:
+                tag = "(typed) " + tag
             log("ask:", tag + text)
             self.t_ask = self.t_ask or time.time()
-            self.ui(voice="thinking", status="Thinking", transcript=text)
+            self.said = []
+            self.reply_parts = []
+            if self.text_mode:
+                self.ui(voice="thinking", status="Thinking", transcript="", bubble=False)
+            else:
+                self.ui(voice="thinking", status="Thinking", transcript=text, who="you")
             result = {}
             worker = threading.Thread(target=lambda: result.update(r=self.agent.ask(tag + text)),
                                       daemon=True)
@@ -493,8 +565,20 @@ class Assistant:
             if reply.lower().startswith("[ignore]"):
                 return self.finish(quiet=True)
             if "[end]" in reply.lower() or BYE.search(text):
+                if self.text_mode:
+                    # Leave a typed answer up long enough to read.
+                    self.reading_pause(reply)
                 return self.finish()
-            self.ui(voice="listening", status="Listening", transcript="", level=0)
+            if self.text_mode:
+                # Typed conversations continue by typing; the reply stays up.
+                self.ui(voice="listening", status="Ask Claude", transcript="", level=0,
+                        typing=True, who="you")
+                got = self.wait_typed(timeout=90)
+                if not got:
+                    return self.finish()
+                text, followup, interrupting = got[1], True, False
+                continue
+            self.ui(voice="listening", status="Listening", transcript="", level=0, who="you")
             got = self.listen(start_timeout=self.cfg["followup_seconds"])
             if not got or not got[1].strip():
                 return self.finish()
@@ -525,7 +609,7 @@ class Assistant:
                 self.barge.clear()
                 self.mouth.stop()
                 self.agent.interrupt()
-                self.ui(voice="listening", status="Listening", transcript="", level=0)
+                self.ui(voice="listening", status="Listening", transcript="", level=0, who="you")
                 got = self.listen(start_timeout=6.0)
                 worker.join(10)
                 return (got[1] if got else "") or "stop"
@@ -535,7 +619,7 @@ class Assistant:
                 log("barge-in: wake")
                 self.mouth.stop()
                 self.agent.interrupt()
-                self.ui(voice="listening", status="Listening", transcript="")
+                self.ui(voice="listening", status="Listening", transcript="", who="you")
                 got = self.capture(prefix=self.utterance_prefix())
                 said = strip_wake(got[1]) if got else ""
                 worker.join(10)
@@ -559,12 +643,19 @@ class Assistant:
                 talk = 0.0
         return None
 
+    def reading_pause(self, reply):
+        words = len(re.sub(r"\[[^\]]+\]", "", reply).split())
+        deadline = time.time() + min(12.0, 2.0 + words * 0.28)
+        while time.time() < deadline and not self.cancel.is_set():
+            time.sleep(0.1)
+
     def finish(self, quiet=False):
         self.mouth.speaker.wait(abort=self.cancel.is_set)
         self.hook_space(False)
         self.typing.clear()
+        self.text_mode = False
         if self.shown:
-            self.ui(voice="", transcript="", level=0, typing=False)
+            self.ui(voice="", transcript="", level=0, typing=False, bubble=False)
             self.shown = False
         self.phase = ""
         self.ducker.restore()
