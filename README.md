@@ -8,7 +8,7 @@ It runs as a local MCP server, so the Claude desktop app and Claude Code can bot
 
 <sub>The overlay's own QML rendered frame by frame over my desktop: listening, working on screen, working on the workspace to the right, then the corner pill it switches to when you're in a game.</sub>
 
-| Listening | While you're gaming | Claude's cursor |
+| Listening (rendered) | While you're gaming | Claude's cursor |
 |---|---|---|
 | ![Listening](docs/listening.jpg) | ![Corner pill](docs/corner.jpg) | ![Cursor](docs/cursor.jpg) |
 
@@ -64,11 +64,11 @@ If you're in a fullscreen game or watching a video, it leaves your workspace alo
 
 ## The overlay
 
-While Claude is working, a slow orange mist drifts along the edges of the screen, it gets a small cursor of its own with a "Claude" tag, and a glass pill at the bottom says what it's doing. Where it shows depends on what Claude is doing:
+While Claude is working, a soft orange glow sits along the edges of the screen, slowly swelling and drifting so it feels alive without getting in the way. Claude also gets a small cursor of its own with a "Claude" tag, and a glass pill at the bottom says what it's doing. Where it shows depends on what Claude is doing:
 
-- working on your screen: mist on all edges
+- working on your screen: a glow on all edges
 - working in a window next to yours: a faint halo around just that window
-- working on the workspace to your left or right: a thin wisp on that edge only
+- working on the workspace to your left or right: a faint glow on that edge only
 - you're gaming or watching something fullscreen: only a small pill in the top right corner
 
 It runs on Quickshell as its own layer. Your mouse goes straight through it, and a layer rule keeps it out of screen captures, so Claude never sees it in its own screenshots and it never shows up in your recordings or streams. The pill gets Hyprland's blur from a rule the server adds at runtime, so nothing in your config changes.
