@@ -5,6 +5,7 @@ PartOf=graphical-session.target
 
 [Service]
 ExecStart=%h/Projects/SudoClaude/bin/sudoclaude-voice run
+Environment=TQDM_DISABLE=1
 Restart=on-failure
 RestartSec=3
 Nice=-5

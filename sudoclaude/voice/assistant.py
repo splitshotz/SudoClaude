@@ -107,6 +107,10 @@ class Assistant:
 
         from .agent import Agent
         self.agent = Agent(cfg, on_sentence=self.mouth.say, on_tool=self.on_tool, log=log)
+        self.agent.on_auth = self.on_auth
+        self.auth_prompted = 0.0
+        self.voice_main = self.mouth.engine
+        self.voice_light = None
         test = os.environ.get("SUDOCLAUDE_VOICE_INPUT")
         self.mic = Mic(test if test else pick_input(cfg.get("input")))
         log("input:", self.mic.target or "default")
@@ -130,7 +134,8 @@ class Assistant:
             return {"mode": "full"}
         flow = bool(a.get("fullscreen")) or a.get("contentType") in ("game", "video") \
             or bool(a.get("tearingHint"))
-        return {"mode": "corner" if flow else "full", "screen": mons.get(a.get("monitor"), "")}
+        return {"mode": "corner" if flow else "full", "screen": mons.get(a.get("monitor"), ""),
+                "content": a.get("contentType") or ("game" if a.get("tearingHint") else "")}
 
     def on_overlay_stop(self):
         log("stop pressed")
@@ -140,6 +145,34 @@ class Assistant:
 
     def on_spoken(self, text):
         self.ui(voice="speaking", status="Claude", transcript=text)
+
+    def on_auth(self):
+        log("claude login expired")
+        self.mouth.say("My Claude login expired, so I can't do that yet.")
+        if time.time() - self.auth_prompted > 3600:
+            self.auth_prompted = time.time()
+            self.mouth.say("I opened a terminal where you can log back in.")
+            try:
+                rules = {"no_initial_focus": True} if self.placement().get("mode") == "corner" else {}
+                self.comp.launch("kitty --title 'Claude login' sh -c 'claude /login; exec $SHELL'",
+                                 rules)
+            except Exception as e:
+                log("could not open login terminal:", repr(e))
+
+    def pick_voice(self, place):
+        """While a game has the GPU, talk with the CPU voice so frames don't drop."""
+        gaming = place.get("mode") == "corner" and place.get("content") == "game"
+        if gaming and self.cfg.get("tts") == "chatterbox":
+            if self.voice_light is None:
+                from .tts import Kokoro
+                try:
+                    self.voice_light = Kokoro(**self.cfg.get("tts_kokoro", {}))
+                except Exception:
+                    self.voice_light = False
+            if self.voice_light:
+                self.mouth.engine = self.voice_light
+                return
+        self.mouth.engine = self.voice_main
 
     def on_tool(self, name):
         short = name.split("__")[-1].replace("_", " ")
@@ -240,7 +273,10 @@ class Assistant:
         self.ducker.duck()
         if self.cfg.get("chime"):
             self.speaker.say(chime())
-        self.ui(voice="listening", status="Listening", transcript="", level=0, **self.placement())
+        place = self.placement()
+        self.pick_voice(place)
+        self.ui(voice="listening", status="Listening", transcript="", level=0,
+                **{k: v for k, v in place.items() if k != "content"})
 
     # talking -----------------------------------------------------------------
 
@@ -354,7 +390,22 @@ class Assistant:
         self.ui(voice="")
 
 
+def fix_env():
+    import glob
+    os.environ.setdefault("XDG_RUNTIME_DIR", RUNTIME)
+    if not os.environ.get("WAYLAND_DISPLAY"):
+        socks = sorted(p for p in glob.glob(os.path.join(RUNTIME, "wayland-*")) if not p.endswith(".lock"))
+        if socks:
+            os.environ["WAYLAND_DISPLAY"] = os.path.basename(socks[0])
+    if not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
+        sigs = sorted(glob.glob(os.path.join(RUNTIME, "hypr", "*", ".socket.sock")), key=os.path.getmtime)
+        if sigs:
+            os.environ["HYPRLAND_INSTANCE_SIGNATURE"] = os.path.basename(os.path.dirname(sigs[-1]))
+    os.environ["QT_QPA_PLATFORM"] = "wayland"
+
+
 def main():
+    fix_env()
     cfg = load_config()
     if not cfg.get("enabled", True):
         log("voice disabled in config")

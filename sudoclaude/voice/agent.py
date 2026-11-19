@@ -38,6 +38,9 @@ YES = re.compile(r"^\W*(yes|yeah|yep|yup|sure|ok(ay)?|do it|go ahead|go for it|c
                  r"please do|absolutely|sounds good)\b", re.I)
 
 
+AUTH = re.compile(r"(failed to authenticate|oauth|invalid api key|please run /login|not logged in)",
+                  re.I)
+
 SENTENCE = re.compile(r"(.+?[.!?;:])(\s+|$)", re.S)
 
 
@@ -76,6 +79,7 @@ class Agent:
         self._interrupted = False
         self.denied = None
         self.armed = None
+        self.on_auth = None
 
     async def guard(self, tool, args, ctx):
         """Everything runs without asking except shell commands that destroy data
@@ -99,8 +103,8 @@ class Agent:
         server = os.path.join(REPO, "bin", "sudoclaude")
         opts = dict(
             system_prompt={"type": "preset", "preset": "claude_code", "append": PROMPT},
-            mcp_servers={"sudoclaude": {"type": "stdio", "command": sys.executable,
-                                        "args": [server], "env": {"SUDOCLAUDE_VOICE": "1"}}},
+            mcp_servers={"sudoclaude": {"type": "stdio", "command": server, "args": [],
+                                        "env": {"SUDOCLAUDE_VOICE": "1"}}},
             permission_mode=self.cfg.get("permission_mode", "default"),
             can_use_tool=self.guard,
             include_partial_messages=True,
@@ -148,6 +152,12 @@ class Agent:
 
         def flush(final=False):
             nonlocal pending
+            if AUTH.search(pending) and len(full) <= 2:
+                pending = ""
+                self._interrupted = True
+                if self.on_auth:
+                    self.on_auth()
+                return
             while True:
                 m = SENTENCE.match(pending)
                 if not m or (len(m.group(1)) < 12 and not final and m.end() < len(pending) and
