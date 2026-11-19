@@ -211,6 +211,32 @@ ShellRoot {
                 live: true
             }
 
+            // Brightness of what's around the pill (never the pill itself): a tiny
+            // quarter-size grab a couple of times a second while it's up.
+            Process {
+                id: lumProbe
+                stdout: StdioCollector {
+                    onStreamFinished: {
+                        const v = parseFloat(text)
+                        if (!isNaN(v)) stage.lum = v
+                    }
+                }
+            }
+            Timer {
+                interval: 500
+                repeat: true
+                triggeredOnStart: true
+                running: stage.on && !shell.capturing
+                onTriggered: {
+                    if (lumProbe.running) return
+                    const p = stage.pill
+                    lumProbe.command = ["python3", Quickshell.shellDir + "/lum.py",
+                        String(Math.round(pillWin.modelData.x + p.x)), String(Math.round(pillWin.modelData.y + p.y)),
+                        String(Math.round(p.width)), String(Math.round(p.height)), "22"]
+                    lumProbe.running = true
+                }
+            }
+
             PillStage {
                 id: stage
                 anchors.fill: parent

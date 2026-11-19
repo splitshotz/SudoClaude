@@ -2,8 +2,7 @@ import QtQuick
 
 // Liquid-glass body for the pill. `backdrop` is a texture of what's behind the
 // pill, covering `target`'s parent (a live screen capture in the overlay).
-// `lumTexture` is the smoothed brightness behind it, for labels that follow the
-// glass.
+// `lum` is the brightness around it, which moves the glass between dark and light.
 ShaderEffect {
     id: glass
     property Item backdrop: null
@@ -23,7 +22,8 @@ ShaderEffect {
     // Brightness band over which the glass goes from dark to light.
     property real lo: 0.45
     property real hi: 0.72
-    readonly property alias lumTexture: lumSrc
+    // Smoothed brightness of what's around the pill, 0 to 1.
+    property real lum: 0.1
     property size size: Qt.size(width, height)
     visible: backdrop !== null
     // Where the pill sits on the screen the backdrop covers.
@@ -31,29 +31,5 @@ ShaderEffect {
     property size screen: target && target.parent ? Qt.size(target.parent.width, target.parent.height)
                                                   : Qt.size(1, 1)
     property var backdropTex: glass.backdrop
-    property var lumTex: lumSrc
     fragmentShader: Qt.resolvedUrl("shaders/glass.frag.qsb")
-
-    ShaderEffect {
-        id: probe
-        width: 1; height: 1
-        property size size: glass.size
-        property point origin: glass.origin
-        property size screen: glass.screen
-        property real pad: glass.pad
-        property real rate: 0.06
-        property var backdropTex: glass.backdrop
-        property var prevTex: lumSrc
-        fragmentShader: Qt.resolvedUrl("shaders/lum.frag.qsb")
-    }
-    ShaderEffectSource {
-        id: lumSrc
-        width: 0; height: 0
-        sourceItem: probe
-        hideSource: true
-        live: true
-        recursive: true
-        format: ShaderEffectSource.RGBA16F
-        textureSize: Qt.size(1, 1)
-    }
 }
