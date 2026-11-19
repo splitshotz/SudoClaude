@@ -17,7 +17,7 @@ Item {
     property real spread: 110
     property real radius: 18
     property real seed: 0
-    property real downscale: 3
+    property real downscale: 1
     property bool frozen: false
 
     visible: intensity > 0.003
