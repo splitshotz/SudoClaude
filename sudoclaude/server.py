@@ -1200,6 +1200,7 @@ class Desktop:
         screenshot of the window with every control it exposes numbered on top,
         plus OCR'd text as fallback targets for apps that expose nothing.
         Works on windows that are behind others or on other workspaces."""
+        self.wl()
         if not (self.cap and self.cap.can_window):
             raise RuntimeError("see needs Hyprland window capture and python-pillow")
         c = self.need_comp()
@@ -2028,6 +2029,7 @@ def ocr_lines(im):
 
 def window_text(window, max_chars=3000):
     """Plain OCR of a window, for apps that expose no accessibility tree."""
+    D.wl()
     if not (D.tesseract and HAVE_PIL and D.cap and D.cap.can_window):
         return None
     w = D.find_window(**window) if isinstance(window, dict) else D.find_window(id=window)
@@ -2050,7 +2052,7 @@ def find_text(query, monitor=None, max_results=10, window=None):
     if window:
         w = D.find_window(**window) if isinstance(window, dict) else D.find_window(id=window)
         D.policy.require(w["app"], "view", w["title"])
-        im = D.cap.window(w["id"])
+        im = D.cap.window(w["id"]).convert("RGB")
         o = _Box(None, w["x"], w["y"], w["width"], w["height"])
     else:
         o = D.output(monitor)
