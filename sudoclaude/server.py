@@ -305,7 +305,7 @@ class Desktop:
     def _hidden_overlay(self):
         class Ctx:
             def __enter__(s):
-                if self.overlay.capture_hide():
+                if not getattr(self, "overlay_in_shots", False) and self.overlay.capture_hide():
                     time.sleep(HIDE_FRAME_S)
 
             def __exit__(s, *a):
@@ -1750,9 +1750,8 @@ def tool_desktop(a):
         return [txt("sent")]
     if act == "overlay_debug":
         on = (a.get("text") or "on").lower() in ("on", "true", "1")
-        if D.comp:
-            D.comp.overlay_rules(in_captures=on)
-        return [txt(f"overlay {'shows' if on else 'hidden'} in screenshots")]
+        D.overlay_in_shots = on
+        return [txt(f"overlay {'shows' if on else 'hidden'} in Claude's screenshots")]
     if act == "reload":
         def later():
             time.sleep(0.3)
