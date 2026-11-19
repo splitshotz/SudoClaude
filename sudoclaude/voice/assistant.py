@@ -277,11 +277,11 @@ class Assistant:
         if got is None:
             return self.finish(quiet=True)
         audio, text = got
-        log("heard:", repr(text))
         if not has_wake(text):
-            if strong:
-                log("wake rejected by transcript")
+            # Don't keep what people in the room say when it wasn't meant for Claude.
+            log("not addressed to Claude, ignored")
             return self.finish(quiet=True)
+        log("heard:", repr(text))
         if not strong:
             self.wake_ui()
         cmd = strip_wake(text)
