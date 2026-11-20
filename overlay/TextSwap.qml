@@ -9,6 +9,8 @@ Item {
     property string family: "Google Sans Flex"
     property int pixelSize: 14
     property int weight: Font.Medium
+    // Shifts the line to centre on its cap height (see Pill.capNudge).
+    property real nudge: 0
 
     implicitWidth: Math.max(a.implicitWidth * a.opacity, b.implicitWidth * b.opacity, cur.implicitWidth)
     implicitHeight: cur.implicitHeight
@@ -39,11 +41,13 @@ Item {
     Line {
         id: a
         color: sw.color; font.family: sw.family; font.pixelSize: sw.pixelSize; font.weight: sw.weight
+        anchors.verticalCenterOffset: sw.nudge
     }
     Line {
         id: b
         opacity: 0
         color: sw.color; font.family: sw.family; font.pixelSize: sw.pixelSize; font.weight: sw.weight
+        anchors.verticalCenterOffset: sw.nudge
     }
 
     ParallelAnimation {

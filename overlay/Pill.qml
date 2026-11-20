@@ -51,6 +51,21 @@ Item {
     readonly property string fontFamily: "Google Sans Flex"
     readonly property bool listening: voice === "listening"
 
+    // Qt centres a line by its whole box (ascent + descent). Fonts with a tall
+    // ascent then sit low, so labels are nudged to centre on the cap height:
+    // the middle between the baseline and the top of the capitals.
+    function capNudge(m) {
+        const cap = m.capitalHeight !== undefined && m.capitalHeight > 0 ? m.capitalHeight
+                                                                          : m.xHeight * 1.36
+        return Math.round((m.descent - m.ascent + cap)) / 2
+    }
+    FontMetrics { id: fm14; font.family: pill.fontFamily; font.pixelSize: 14 }
+    FontMetrics { id: fm13; font.family: pill.fontFamily; font.pixelSize: 13; font.weight: Font.Medium }
+    FontMetrics { id: fm10; font.family: pill.fontFamily; font.pixelSize: 10; font.weight: Font.DemiBold }
+    readonly property real nudge14: capNudge(fm14)
+    readonly property real nudge13: capNudge(fm13)
+    readonly property real nudge10: capNudge(fm10)
+
     implicitHeight: 48
     implicitWidth: row.implicitWidth + 14 + 8
     height: implicitHeight
@@ -103,6 +118,7 @@ Item {
                 TextSwap {
                     id: statusText
                     anchors.verticalCenter: parent.verticalCenter
+                    nudge: pill.nudge14
                     text: pill.status
                     color: pill.fg
                     family: pill.fontFamily
@@ -122,6 +138,7 @@ Item {
                     id: subText
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
+                    anchors.verticalCenterOffset: pill.nudge14
                     text: pill.subtitle
                     // Yours is quieter, Claude's is the full label color warmed a
                     // touch toward its orange, tool activity is dim italic.
@@ -151,6 +168,7 @@ Item {
                     x: 10
                     width: 410
                     anchors.verticalCenter: parent.verticalCenter
+                    anchors.verticalCenterOffset: pill.nudge14
                     color: pill.fg
                     selectionColor: pill.accent
                     font.family: pill.fontFamily
@@ -195,6 +213,7 @@ Item {
                         font.pixelSize: 13
                         font.weight: Font.Medium
                         anchors.verticalCenter: parent.verticalCenter
+                        anchors.verticalCenterOffset: pill.nudge13
                     }
                     Rectangle {
                         visible: pill.detail.length > 0 && !pill.stopped
@@ -207,6 +226,7 @@ Item {
                         Text {
                             id: keyText
                             anchors.centerIn: parent
+                            anchors.verticalCenterOffset: pill.nudge10
                             text: pill.detail
                             color: Qt.rgba(pill.tonalFg.r, pill.tonalFg.g, pill.tonalFg.b, 0.8)
                             font.family: pill.fontFamily
