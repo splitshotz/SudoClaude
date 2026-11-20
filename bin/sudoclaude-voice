@@ -9,7 +9,8 @@ if [[ "$1" == listen && -f "$paused" ]]; then
 fi
 case "$1" in
     listen) exec systemctl --user kill --kill-whom=main -s USR1 sudoclaude-voice.service ;;
-    stop)   exec systemctl --user kill --kill-whom=main -s USR2 sudoclaude-voice.service ;;
+    # The assistant watches this file, which is quicker than a signal mid-answer.
+    stop)   exec touch "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/sudoclaude-voice.stop" ;;
 esac
 here="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 venv="${SUDOCLAUDE_VENV:-$HOME/.local/share/sudoclaude/venv}"
