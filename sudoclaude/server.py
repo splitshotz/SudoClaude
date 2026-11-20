@@ -21,7 +21,16 @@ from .policy import Policy
 from .wayland import (BUTTONS, MODIFIER_CODES, NAMED_KEYS, US_CHARS, Connection,
                       VirtualKeyboard, VirtualPointer, WaylandError, find_socket)
 
-VERSION = "2.1.0"
+def _version():
+    try:
+        with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                               "VERSION")) as f:
+            return f.read().strip()
+    except OSError:
+        return "unknown"
+
+
+VERSION = _version()
 MAX_EDGE = int(os.environ.get("SUDOCLAUDE_MAX_EDGE", "1568"))
 DETAIL_EDGE = {"low": 960, "normal": 1280, "high": MAX_EDGE}
 MAX_PIXELS = int(os.environ.get("SUDOCLAUDE_MAX_PIXELS", "1150000"))

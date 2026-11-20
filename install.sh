@@ -1,22 +1,49 @@
 #!/usr/bin/env bash
+# Installs SudoClaude. Run it on its own and it asks about the optional parts;
+# the settings app runs it with flags instead:
+#   --yes              don't ask anything (optional parts default to off)
+#   --ocr / --no-ocr   tesseract for reading text in apps without accessibility
+#   --voice            set up the voice assistant too (install-voice.sh)
+#   --browser          set up the Chromium extension
+#   --keybind TALK STOP  combos for the voice keybinds (default SUPER+Space SUPER+SHIFT+Escape)
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN="$DIR/bin/sudoclaude"
-chmod +x "$BIN"
+chmod +x "$BIN" "$DIR"/bin/* "$DIR"/*.sh
+
+YES=0; OCR=""; VOICE=""; BROWSER=""; TALK="SUPER+Space"; STOP="SUPER+SHIFT+Escape"
+while (($#)); do
+  case "$1" in
+    --yes) YES=1 ;;
+    --ocr) OCR=1 ;; --no-ocr) OCR=0 ;;
+    --voice) VOICE=1 ;; --no-voice) VOICE=0 ;;
+    --browser) BROWSER=1 ;; --no-browser) BROWSER=0 ;;
+    --keybind) TALK="$2"; STOP="$3"; shift 2 ;;
+  esac
+  shift
+done
+ask() {  # ask "question" default(y/n) -> 0 for yes
+  if ((YES)); then [[ "$2" == y ]]; return; fi
+  local a; read -rp "$1 [$([[ $2 == y ]] && echo Y/n || echo y/N)] " a
+  [[ "${a:-$2}" =~ ^[Yy] ]]
+}
+# Root for pacman: sudo in a terminal, the desktop's password prompt otherwise.
+asroot() { if [[ -t 0 ]]; then sudo "$@"; else pkexec "$@"; fi; }
 
 need=(python python-pillow python-gobject at-spi2-core grim wl-clipboard zenity libnotify)
 missing=()
 for p in "${need[@]}"; do pacman -Qq "$p" >/dev/null 2>&1 || missing+=("$p"); done
 if ((${#missing[@]})); then
   echo "Installing: ${missing[*]}"
-  sudo pacman -S --needed --noconfirm "${missing[@]}"
+  asroot pacman -S --needed --noconfirm "${missing[@]}"
 fi
 
 opt=()
 pacman -Qq tesseract >/dev/null 2>&1 || opt+=(tesseract tesseract-data-eng)
 if ((${#opt[@]})); then
-  read -rp "Install tesseract for find_text (OCR)? [Y/n] " a
-  [[ "${a:-y}" =~ ^[Yy] ]] && sudo pacman -S --needed --noconfirm "${opt[@]}"
+  if [[ "$OCR" == 1 ]] || { [[ -z "$OCR" ]] && ask "Install tesseract for find_text (OCR)?" y; }; then
+    asroot pacman -S --needed --noconfirm "${opt[@]}"
+  fi
 fi
 command -v qs >/dev/null || command -v quickshell >/dev/null || \
   echo "Note: quickshell not found, so the on-screen overlay will be disabled."
@@ -45,15 +72,15 @@ if command -v claude >/dev/null; then
 fi
 
 if command -v chromium >/dev/null || command -v google-chrome-stable >/dev/null; then
-  read -rp "Set up the Chromium extension (lets Claude work inside browser tabs)? [y/N] " a
-  [[ "${a:-n}" =~ ^[Yy] ]] && { "$DIR/bin/sudoclaude-browser-setup" || \
-    echo "Browser extension setup failed; run bin/sudoclaude-browser-setup later."; }
+  if [[ "$BROWSER" == 1 ]] || { [[ -z "$BROWSER" ]] && ask "Set up the Chromium extension (lets Claude work inside browser tabs)?" n; }; then
+    "$DIR/bin/sudoclaude-browser-setup" || \
+      echo "Browser extension setup failed; run bin/sudoclaude-browser-setup later."
+  fi
 fi
 
-read -rp "Set up the \"Claude\" voice assistant too (downloads ~2 GB of models)? [y/N] " a
-if [[ "${a:-n}" =~ ^[Yy] ]]; then
+if [[ "$VOICE" == 1 ]] || { [[ -z "$VOICE" ]] && ask "Set up the \"Claude\" voice assistant too (downloads ~2 GB of models)?" n; }; then
   "$DIR/install-voice.sh" || echo "Voice setup failed; run ./install-voice.sh later."
-  "$DIR/bin/sudoclaude-keybind" || echo "Skipped the keybind; see the README."
+  "$DIR/bin/sudoclaude-keybind" "$TALK" "$STOP" || echo "Skipped the keybind; see the README."
 fi
 
 echo

@@ -24,7 +24,12 @@ Item {
     property real lumLo: 0.1
     property real lumHi: 0.1
     property bool lightGlass: false
-    property real mode: lightGlass ? 1 : 0
+    // "auto" follows what's behind the glass; "light" / "dark" pin it.
+    property string appearance: "auto"
+    property real frost: 5
+    property real lens: 1
+    property real tintMix: 0.12
+    property real mode: appearance === "light" ? 1 : appearance === "dark" ? 0 : (lightGlass ? 1 : 0)
     Behavior on lumLo { NumberAnimation { duration: 450; easing.type: Easing.InOutQuad } }
     Behavior on lumHi { NumberAnimation { duration: 450; easing.type: Easing.InOutQuad } }
     Behavior on mode { NumberAnimation { duration: 380; easing.type: Easing.InOutQuad } }
@@ -165,6 +170,9 @@ Item {
         backdrop: stage.backdrop
         mode: stage.mode
         surround: stage.lum
+        frost: stage.frost
+        lens: stage.lens
+        tintMix: stage.tintMix
         onStopRequested: stage.stopRequested()
         onTyped: t => stage.typed(t)
         opacity: stage.capturing ? 0 : fade
@@ -203,6 +211,9 @@ Item {
         mode: stage.mode
         surround: stage.lum
         tilt: stage.tilt
+        frost: stage.frost + 1
+        lens: stage.lens
+        tintMix: stage.tintMix
         textColor: pill.blend(pill.fg, pill.accent, 0.12)
         fontFamily: pill.fontFamily
         maxTextWidth: Math.min(460, stage.width * 0.4)

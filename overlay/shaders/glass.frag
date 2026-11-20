@@ -18,6 +18,8 @@ layout(std140, binding = 0) uniform buf {
     float mode;       // 0 dark, 1 light
     float hasBackdrop;
     float surround;   // average brightness around the pill
+    float lens;       // refraction strength, 1 = default
+    float tintMix;    // how much of the glass's own tint shows, 0.12 default
 };
 layout(binding = 1) uniform sampler2D backdropTex;
 
@@ -72,8 +74,8 @@ void main() {
         // middle is magnified a touch, like a thick convex slab.
         float t = clamp(depth / band, 0.0, 1.0);
         float bend = pow(1.0 - t, 2.0);
-        vec2 q = p * 0.95 + n * (16.0 * bend);
-        vec2 ca = n * (0.4 + 1.6 * bend);
+        vec2 q = p * (1.0 - 0.05 * lens) + n * (16.0 * lens * bend);
+        vec2 ca = n * (0.4 + 1.6 * bend) * lens;
         vec3 c = vec3(frosted(q + ca).r, frosted(q).g, frosted(q - ca).b);
 
         // Color comes through stronger and brightness is remapped into a
@@ -95,7 +97,7 @@ void main() {
         float Lt = mix(Ld, Ll, mode);
         c = clamp(c + (Lt - L), 0.0, 1.0);
         // A whisper of the glass's own tint ties it to the shell's palette.
-        c = mix(c, mix(tint.rgb, lightTint.rgb, mode), 0.12);
+        c = mix(c, mix(tint.rgb, lightTint.rgb, mode), tintMix);
         rgb = c * inside;
         alpha = inside;
     } else {

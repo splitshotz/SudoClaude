@@ -24,6 +24,8 @@ ShaderEffect {
     // Average brightness around the pill, so the glass can sit a step apart from it.
     property real surround: 0.1
     property real hasBackdrop: backdrop ? 1 : 0
+    property real lens: 1
+    property real tintMix: 0.12
 
     x: target ? -margin : 0
     y: target ? -margin : 0

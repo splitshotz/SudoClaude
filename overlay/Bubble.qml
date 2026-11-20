@@ -12,6 +12,9 @@ Item {
     property real mode: 0
     property real surround: 0.1
     property real tilt: 0
+    property real frost: 6
+    property real lens: 1
+    property real tintMix: 0.12
     property color textColor: "white"
     property string fontFamily: "Google Sans Flex"
     // Which side the pill is on, so it grows out of that edge.
@@ -50,8 +53,10 @@ Item {
         backdrop: bubble.backdrop
         target: bubble
         radius: Math.min(22, bubble.height / 2)
-        band: 9 * Math.max(0, Math.min(1, bubble.appear))
-        frost: 6
+        band: 9 * Math.max(0, Math.min(1, bubble.appear)) * Math.max(0.3, bubble.lens)
+        frost: bubble.frost
+        lens: bubble.lens
+        tintMix: bubble.tintMix
         mode: bubble.mode
         surround: bubble.surround
         tilt: bubble.tilt
