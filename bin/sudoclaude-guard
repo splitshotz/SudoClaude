@@ -214,12 +214,12 @@ class Guard:
             log(f"paused for {game}")
             notify("Claude's voice is off",
                    f"{game} is running, so the voice assistant is taking a break to free up "
-                   f"{footprint / GIB:.1f} GB. It'll come back when you're done.")
+                   f"{footprint / GIB:.1f} GB. Super+Space still works if you type.")
         else:
             log("paused, memory low")
             notify("Claude's voice is off",
                    "Memory is getting tight, so the voice assistant stepped aside to give "
-                   f"back {footprint / GIB:.1f} GB. It'll come back when there's room.")
+                   f"back {footprint / GIB:.1f} GB. Super+Space still works if you type.")
 
     def resume(self):
         log("resuming")

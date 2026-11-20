@@ -153,7 +153,7 @@ How it behaves:
 - Music and videos get turned down while you're talking to it and come back up after.
 - It leaves on its own when you're done, or when you say something like "thanks, that's all".
 - Every wake gets checked against what was actually said before anything happens, so "I asked Claude yesterday" or "the cat clawed it" won't set it off.
-- The models take a few GB of RAM, so it gets out of the way when you need that. While a Steam game is running, or when free memory drops under 4 GB, it shuts the voice off, sends a notification, and starts it again once the game closes or there's room. Pressing Super+Space while it's off just tells you why. You can turn either of these off or change the 4 GB in the app, and `"pause_apps": ["lutris-wrapper"]` in the `voice` config adds non-Steam programs to watch for.
+- The models take a few GB of RAM, so it gets out of the way when you need that. While a Steam game is running, or when free memory drops under 4 GB, it shuts the voice off, sends a notification, and starts it again once the game closes or there's room. Super+Space still works while it's off: it opens the pill for typing, with typed answers, since that part needs none of the speech models. You can turn either of these off or change the 4 GB in the app, and `"pause_apps": ["lutris-wrapper"]` in the `voice` config adds non-Steam programs to watch for.
 
 Everything you say is transcribed locally with Parakeet. The voice is Chatterbox Turbo on the GPU. If something fullscreen that isn't a Steam game has focus, it switches to Kokoro on the CPU so your frame rate doesn't drop.
 
