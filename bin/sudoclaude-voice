@@ -1,17 +1,22 @@
 #!/usr/bin/env bash
 # listen and stop are meant for keybinds, so they skip Python and just signal
-# the running assistant. While the guard has the voice paused, listen just says so.
-paused="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/sudoclaude-voice-paused"
-if [[ "$1" == listen && -f "$paused" ]]; then
-    why="$(python3 "$(dirname "$(readlink -f "$0")")/sudoclaude-guard" status)"
-    exec notify-send -a SudoClaude -i audio-input-microphone "Claude's voice is taking a break" \
-        "It's off while ${why#paused: } and comes back on its own."
+# the running assistant.
+run="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+here="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+venv="${SUDOCLAUDE_VENV:-$HOME/.local/share/sudoclaude/venv}"
+# While the guard has the voice off for a game or low memory, Super+Space opens
+# a typing-only Claude instead, which skips the heavy speech models.
+if [[ "$1" == listen && -f "$run/sudoclaude-voice-paused" ]]; then
+    pid="$(cat "$run/sudoclaude-text.pid" 2>/dev/null)"
+    if [[ -n "$pid" ]] && grep -qa sudoclaude.voice "/proc/$pid/cmdline" 2>/dev/null; then
+        exec kill -USR1 "$pid"
+    fi
+    cd "$here" && exec setsid "$venv/bin/python" -m sudoclaude.voice text \
+        > /dev/null 2>> "$run/sudoclaude-text.err" < /dev/null
 fi
 case "$1" in
     listen) exec systemctl --user kill --kill-whom=main -s USR1 sudoclaude-voice.service ;;
     # The assistant watches this file, which is quicker than a signal mid-answer.
     stop)   exec touch "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/sudoclaude-voice.stop" ;;
 esac
-here="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
-venv="${SUDOCLAUDE_VENV:-$HOME/.local/share/sudoclaude/venv}"
 cd "$here" && exec "$venv/bin/python" -m sudoclaude.voice "$@"

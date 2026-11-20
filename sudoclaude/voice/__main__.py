@@ -139,6 +139,7 @@ def main():
     ap = argparse.ArgumentParser(prog="sudoclaude-voice")
     sub = ap.add_subparsers(dest="cmd")
     sub.add_parser("run")
+    sub.add_parser("text")
     sub.add_parser("setup")
     sub.add_parser("train")
     r = sub.add_parser("record")
@@ -153,6 +154,9 @@ def main():
     if a.cmd in (None, "run"):
         from .assistant import main as run
         run()
+    elif a.cmd == "text":
+        from .text import main as text
+        text()
     elif a.cmd == "setup":
         setup()
     elif a.cmd == "train":
