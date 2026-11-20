@@ -107,7 +107,7 @@ How it behaves:
 - Super+Space does the same without the wake word. Press it again to end your turn, or while Claude is talking to cut in.
 - While it's listening, double tap Space and the pill turns into a text box so you can type instead. Enter sends, Escape cancels. This is off when a fullscreen app or game has focus.
 - After it answers, the mic stays open for a few seconds so you can follow up without saying its name again. If what it hears clearly isn't meant for it, it ignores it.
-- Saying "Claude" while it's talking or working interrupts it. Talking over it softens its voice first and only cuts it off if you're actually saying something.
+- To cut in while it's talking or working, press Super+Space. Interrupting by voice (saying "Claude" or just talking over it) is there but off by default because background noise set it off too easily; turn it on with `"voice_interrupt": true` in the `voice` config.
 - Music and videos get turned down while you're talking to it and come back up after.
 - It leaves on its own when you're done, or when you say something like "thanks, that's all".
 - Every wake gets checked against what was actually said before anything happens, so "I asked Claude yesterday" or "the cat clawed it" won't set it off.

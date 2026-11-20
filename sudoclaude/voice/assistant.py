@@ -27,6 +27,9 @@ DEFAULTS = {
     "wake_soft": 0.2,
     "followup_seconds": 6.0,
     "barge_in_seconds": 0.8,
+    # Interrupting Claude by voice (its name, or talking over it). Off for now:
+    # it was too easy to trigger. Super+Space always cuts in.
+    "voice_interrupt": False,
     "duck": 0.2,
     "chime": True,
     "tts": "chatterbox",
@@ -610,6 +613,8 @@ class Assistant:
             now = time.time()
             p = self.vad(chunk)
             _, hit = self.score(chunk, p, now)
+            if not self.cfg.get("voice_interrupt"):
+                hit = False
             if self.barge.is_set():
                 self.barge.clear()
                 self.mouth.stop()
@@ -620,7 +625,8 @@ class Assistant:
                 return (got[1] if got else "") or "stop"
             speaking = self.speaker.speaking
             loud = self.mic.level > max(0.006, self.noise * 3.0)
-            talk = (talk + CHUNK_S if (p > 0.85 and loud and speaking)
+            talk = (talk + CHUNK_S if (p > 0.85 and loud and speaking
+                                       and self.cfg.get("voice_interrupt"))
                     else max(0.0, talk - CHUNK_S))
             if hit:
                 log("barge-in: wake")
