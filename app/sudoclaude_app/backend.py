@@ -375,8 +375,12 @@ class Backend(QObject):
 
     def _restart_voice_now(self):
         if self._status.get("voice_installed"):
-            # try-restart leaves it off if the guard paused it for a game
-            run(["systemctl", "--user", "try-restart", "sudoclaude-voice"], timeout=10)
+            # Leave it off if the guard paused it for a game; otherwise restart,
+            # which also starts it after it's been switched back on.
+            code, _ = run('test -f "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/sudoclaude-voice-paused"',
+                          timeout=5, shell=True)
+            if code != 0:
+                run(["systemctl", "--user", "restart", "sudoclaude-voice"], timeout=10)
             self.toast.emit("Voice restarted with your changes")
 
     # ---- actions ----------------------------------------------------------------

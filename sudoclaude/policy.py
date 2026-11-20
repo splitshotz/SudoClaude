@@ -12,6 +12,7 @@ CONFIG_DIR = os.path.join(os.environ.get("XDG_CONFIG_HOME") or
 CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
 RUNTIME = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
 ABORT_FILE = os.path.join(RUNTIME, "sudoclaude.abort")
+OWN_ESC_FILE = os.path.join(RUNTIME, "sudoclaude.own-esc")  # Esc that Claude pressed itself
 LOCK_FILE = os.path.join(RUNTIME, "sudoclaude.lock")
 
 DEFAULTS = {
@@ -319,6 +320,11 @@ class Policy:
 
     def mark_own_esc(self):
         self.own_esc = [t for t in self.own_esc if time.time() - t < 5] + [time.time()]
+        try:
+            with open(OWN_ESC_FILE, "w"):
+                pass
+        except OSError:
+            pass
 
     def _acquire_lock(self):
         if self.lock_fd is not None:
@@ -395,24 +401,31 @@ class Policy:
                 pass
 
     def _idle_loop(self):
+        # Checks for Esc ten times a second so stopping feels instant; the idle
+        # timeout only needs a look about once a second.
+        n = 0
         while True:
-            time.sleep(1.0)
+            time.sleep(0.1)
+            n += 1
             try:
-                idle = time.time() - self.last_action > float(self.cfg.get("idle_seconds", 25))
-                if self.active and idle:
-                    self.deactivate()
-                elif not self.active and idle and self.lock_fd is not None:
-                    with self._lock:
-                        self._release_lock()
-                elif self.active:
+                if self.active:
                     try:
                         m = os.stat(ABORT_FILE).st_mtime
                         if m > self.activated_at and not any(
                                 abs(m - t) < 0.6 for t in self.own_esc):
                             self.aborted_at = m
                             self.deactivate(stopped=True)
+                            continue
                     except FileNotFoundError:
                         pass
+                if n % 10:
+                    continue
+                idle = time.time() - self.last_action > float(self.cfg.get("idle_seconds", 25))
+                if self.active and idle:
+                    self.deactivate()
+                elif not self.active and idle and self.lock_fd is not None:
+                    with self._lock:
+                        self._release_lock()
             except Exception:
                 pass
 

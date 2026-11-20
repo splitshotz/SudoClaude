@@ -17,6 +17,9 @@ from .listen import (CHUNK_S, MODELS, Endpointer, Transcriber, Vad, Wake, has_wa
 RUNTIME = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
 LOGFILE = os.path.join(RUNTIME, "sudoclaude-voice.log")
 TYPE_FLAG = os.path.join(RUNTIME, "sudoclaude-type")
+STOP_FILE = os.path.join(RUNTIME, "sudoclaude-voice.stop")
+ABORT_FILE = os.path.join(RUNTIME, "sudoclaude.abort")
+OWN_ESC_FILE = os.path.join(RUNTIME, "sudoclaude.own-esc")
 CONFIG = os.path.expanduser("~/.config/sudoclaude/config.json")
 
 DEFAULTS = {
@@ -136,6 +139,7 @@ class Assistant:
         self.typing = threading.Event()
         self.typed = queue.Queue()
         self.space_hook = False
+        self.esc_hook = False
 
         sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
         from sudoclaude.compositor import detect
@@ -218,7 +222,51 @@ class Assistant:
         log("stop pressed")
         self.cancel.set()
         self.mouth.stop()
-        self.agent.interrupt()
+        if self.shown:
+            self.ui(voice="", transcript="", level=0, typing=False, bubble=False)
+            self.shown = False
+        threading.Thread(target=self.agent.interrupt, daemon=True).start()
+        try:
+            # computer use stops too, if Claude was in the middle of it
+            with open(ABORT_FILE, "w"):
+                pass
+        except OSError:
+            pass
+
+    def hook_esc(self, on):
+        c = self.comp
+        if not c or on == self.esc_hook:
+            return
+        try:
+            if on:
+                c.esc_listen(STOP_FILE, name="__sudoclaude_voice_esc")
+            else:
+                c.esc_unlisten(STOP_FILE, name="__sudoclaude_voice_esc")
+            self.esc_hook = on
+        except Exception as e:
+            log("esc hook:", repr(e))
+
+    def watch_stop(self):
+        """Esc and the stop key touch STOP_FILE; act on it within a few frames.
+        Polling a file beats a signal here: a signal waits until the main thread
+        gets back to Python, which can be a while mid-answer."""
+        def mtime(p):
+            try:
+                return os.stat(p).st_mtime
+            except OSError:
+                return 0.0
+        last = mtime(STOP_FILE)
+        while not self.stopped.is_set():
+            time.sleep(0.03)
+            m = mtime(STOP_FILE)
+            if m == last:
+                continue
+            last = m
+            if not self.phase or self.typing.is_set():
+                continue
+            if abs(m - mtime(OWN_ESC_FILE)) < 0.6:
+                continue  # Claude pressed Esc in an app, not you
+            self.on_overlay_stop()
 
     def on_sentence(self, text):
         """A sentence of the reply: spoken, or, when they typed, added to the text
@@ -506,6 +554,7 @@ class Assistant:
                 **{k: v for k, v in place.items() if k != "content"})
         # Double-tap Space to type instead, except over fullscreen apps and games.
         self.hook_space(place.get("mode") != "corner")
+        self.hook_esc(True)
 
     # talking -----------------------------------------------------------------
 
@@ -665,6 +714,7 @@ class Assistant:
     def finish(self, quiet=False):
         self.mouth.speaker.wait(abort=self.cancel.is_set)
         self.hook_space(False)
+        self.hook_esc(False)
         self.typing.clear()
         self.text_mode = False
         if self.shown:
@@ -680,6 +730,7 @@ class Assistant:
         self.mic.start()
         threading.Thread(target=self.agent.warm, daemon=True).start()
         threading.Thread(target=self.agent.keep_warm, daemon=True).start()
+        threading.Thread(target=self.watch_stop, daemon=True).start()
         log("ready")
         while not self.stopped.is_set():
             try:
@@ -695,6 +746,7 @@ class Assistant:
 
     def shutdown(self, *_):
         self.hook_space(False)
+        self.hook_esc(False)
         self.stopped.set()
         self.mic.stop()
         self.mouth.stop()

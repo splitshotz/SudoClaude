@@ -336,10 +336,10 @@ class Hyprland:
         except Exception:
             return None
 
-    def esc_listen(self, path):
+    def esc_listen(self, path, name="__sudoclaude_esc"):
         if self.lua:
-            self.eval("if _G.__sudoclaude_esc then _G.__sudoclaude_esc:remove() end "
-                      "_G.__sudoclaude_esc = hl.on(\"input.keyboard.key\", function(code, t, state) "
+            self.eval(f"if _G.{name} then _G.{name}:remove() end "
+                      f"_G.{name} = hl.on(\"input.keyboard.key\", function(code, t, state) "
                       f"if code == 9 and state == 1 then local f = io.open({lua_str(path)}, "
                       "\"w\") if f then f:close() end end end)")
             return
@@ -371,10 +371,9 @@ class Hyprland:
             return
         self.raw("keyword unbind , space")
 
-    def esc_unlisten(self, path):
+    def esc_unlisten(self, path, name="__sudoclaude_esc"):
         if self.lua:
-            self.eval("if _G.__sudoclaude_esc then _G.__sudoclaude_esc:remove() "
-                      "_G.__sudoclaude_esc = nil end")
+            self.eval(f"if _G.{name} then _G.{name}:remove() _G.{name} = nil end")
             return
         users = [b for b in self.j("binds") if b.get("key") == "Escape"
                  and not b.get("modmask") and path not in (b.get("arg") or "")]
@@ -552,10 +551,10 @@ class Sway:
     def overlay_rules(self, in_captures=False):
         return False
 
-    def esc_listen(self, path):
+    def esc_listen(self, path, name=None):
         pass
 
-    def esc_unlisten(self, path):
+    def esc_unlisten(self, path, name=None):
         pass
 
     def launch(self, cmd, rules=None):
