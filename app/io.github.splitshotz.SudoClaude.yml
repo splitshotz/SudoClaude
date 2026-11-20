@@ -18,6 +18,9 @@ modules:
   - name: krb5
     subdir: src
     buildsystem: autotools
+    build-options:
+      # krb5 1.21 still has pre-C23 prototypes that GCC 15 rejects by default
+      cflags: -std=gnu17
     config-opts:
       - --disable-static
       - --disable-rpath
