@@ -7,7 +7,11 @@ DATA="${XDG_DATA_HOME:-$HOME/.local/share}/sudoclaude"
 VENV="$DATA/venv"
 step() { printf '\n\033[1m%s\033[0m\n' "$*"; }
 
-command -v uv >/dev/null || { echo "needs uv (pacman -S uv)"; exit 1; }
+asroot() { if [[ -t 0 ]]; then sudo "$@"; else pkexec "$@"; fi; }
+if ! command -v uv >/dev/null; then
+  step "Installing uv"
+  asroot pacman -S --needed --noconfirm uv || { echo "needs uv (pacman -S uv)"; exit 1; }
+fi
 
 step "Python environment"
 [[ -x "$VENV/bin/python" ]] || uv venv --python 3.11 "$VENV"

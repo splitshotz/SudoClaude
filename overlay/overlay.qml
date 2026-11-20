@@ -45,6 +45,24 @@ ShellRoot {
         return !Hyprland.toplevels.values.some(t => String(t.address).replace(/^0x/, "") === id)
     }
 
+    // SudoClaude's own settings, read live so changes in the settings app show
+    // up straight away.
+    property var cfg: ({})
+    readonly property var glassCfg: cfg.glass || ({})
+    function num(v, d) { return typeof v === "number" ? v : d }
+    FileView {
+        path: Quickshell.env("HOME") + "/.config/sudoclaude/config.json"
+        watchChanges: true
+        printErrors: false
+        onFileChanged: reload()
+        onLoaded: {
+            try {
+                shell.cfg = JSON.parse(text())
+                if (shell.cfg.overlay_style) shell.style = shell.cfg.overlay_style
+            } catch (e) {}
+        }
+    }
+
     // end-4 keeps the wallpaper path in its config; the glass needs it to show
     // what's behind windows.
     property string wallpaper: ""
@@ -314,6 +332,10 @@ ShellRoot {
                 anchors.fill: parent
                 backdrop: shell.mode !== "corner" ? behindTex : null
                 insets: pillWin.reserved
+                frost: shell.num(shell.glassCfg.frost, 5)
+                lens: shell.num(shell.glassCfg.lens, 1)
+                tintMix: shell.num(shell.glassCfg.tint, 0.12)
+                appearance: shell.glassCfg.appearance || "auto"
                 on: pillWin.here && shell.present
                 visible: on || pill.opacity > 0.01
                 capturing: shell.capturing

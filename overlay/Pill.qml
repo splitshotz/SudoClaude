@@ -37,6 +37,10 @@ Item {
     // between them.
     property real mode: 0
     property real surround: 0.1
+    // From the user's settings (config.json "glass").
+    property real frost: 5
+    property real lens: 1
+    property real tintMix: 0.12
     readonly property real lightEased: !solid ? mode * mode * (3 - 2 * mode) : 0
     function blend(a, b, t) {
         const x = Qt.lighter(a, 1.0), y = Qt.lighter(b, 1.0)
@@ -76,7 +80,10 @@ Item {
         visible: !pill.solid
         backdrop: pill.backdrop
         target: pill
-        band: (pill.lifted ? 13 : 10) * pill.appear
+        band: (pill.lifted ? 13 : 10) * pill.appear * Math.max(0.3, pill.lens)
+        frost: pill.frost
+        lens: pill.lens
+        tintMix: pill.tintMix
         Behavior on band { NumberAnimation { duration: 180 } }
         tilt: pill.tilt
         mode: pill.mode
