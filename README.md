@@ -4,13 +4,13 @@ Computer use for Linux. It lets Claude see the screen, move its own cursor, type
 
 It runs as a local MCP server, so the Claude desktop app and Claude Code can both use it.
 
-![The overlay going through listening, working on screen, working on another workspace, and the corner pill used during games](docs/overlay.gif)
+![Saying "open spotify and put on my liked songs", Claude clicking through it, then answering](docs/overlay.gif)
 
-<sub>The overlay's own QML rendered frame by frame over my desktop: listening, working on screen, working on the workspace to the right, then the corner pill it switches to when you're in a game.</sub>
+<sub>Rendered from the overlay's own QML over my desktop: listening, working with its own cursor, then answering.</sub>
 
-| Listening (rendered) | While you're gaming | Claude's cursor |
+| Listening | Typed reply | Over something light |
 |---|---|---|
-| ![Listening](docs/listening.jpg) | ![Corner pill](docs/corner.jpg) | ![Cursor](docs/cursor.jpg) |
+| ![Listening](docs/listening.jpg) | ![Typed reply](docs/reply.jpg) | ![Light glass](docs/light.jpg) |
 
 ## Will it run on my setup?
 
@@ -51,6 +51,13 @@ Nothing in your Hyprland config changes except one thing: if you set up voice, i
 To remove it, use Uninstall in the app's settings or run `./uninstall.sh` (add `--purge` to delete your settings and the voice models too).
 
 ## The app
+
+| Welcome | Setup |
+|---|---|
+| ![Welcome screen](docs/app-welcome.jpg) | ![Picking what to install](docs/app-setup.jpg) |
+| **Home** | **Settings** |
+| ![Home](docs/app-home.jpg) | ![Settings](docs/app-settings.jpg) |
+
 
 The app has three pages. Home shows whether computer use, voice and the overlay are running, the last few things you asked Claude, and your version. Settings covers the glass (frost, refraction, tint, light or dark, where the pill sits), the voice, how Claude asks for permission, and your keys, and each section has its own reset to defaults. Updates checks GitHub for new releases, shows what changed and installs them; when there's a new version of the app itself it downloads that too and tells you to reopen it.
 
@@ -113,11 +120,15 @@ While Claude is working, a thin orange line runs along the edge of the screen wi
 - working on your screen: the line goes around the whole screen
 - working in a window next to yours: it traces just that window
 - working on the workspace to your left or right: only that edge lights up
-- you're gaming or watching something fullscreen: only a small pill in the top right corner
+- you're gaming or watching something fullscreen: no line, and the pill moves to the top right corner
 
 There are a few other looks if the line isn't your thing. Set `"overlay_style"` in the config to `hairline` (the default), `brackets` (viewfinder corners), `spotlight` (a warm glow under the pill, nothing on the edges), `minimal` (just the pill and cursor) or `glow` (a soft glow on the edges). Previews are in [docs/options](docs/options).
 
-The pill sits at the bottom by default. Drag it anywhere, or just flick it toward an edge or corner and it carries on to the nearest of eight spots (the four edges and four corners) and stays there next time. It's glass: Hyprland blurs whatever is behind it, and the rim bends the content just past its edge like a lens, with a glint that slides round while you move it. The colors come from your end-4 Material You palette when you have one.
+![Claude working on screen, with the edge line, its cursor and the pill](docs/working.jpg)
+
+The pill sits at the bottom by default. Drag it anywhere, or just flick it toward an edge or corner and it carries on to the nearest of eight spots (the four edges and four corners) and stays there next time.
+
+It's built like Apple's Liquid Glass. It blurs what's actually behind it (the wallpaper and the windows under it), and the rim bends that content like a lens. It also checks how bright things are around it and eases between a dark and a light version so the text stays readable on any background, while still standing apart from what it's sitting on. You can change the frost, refraction and tint in the app, or pin it to light or dark. The colors come from your end-4 Material You palette when you have one.
 
 It runs on Quickshell as its own layer and your mouse goes straight through everything except the pill. It shows up in your own screenshots and recordings like any other part of the screen; Claude's screenshots hide it for a frame so it doesn't get in Claude's way. The blur comes from layer rules the server adds at runtime, so nothing in your config changes.
 
@@ -135,7 +146,8 @@ How it behaves:
 
 - "Claude, open Discord" works in one breath, or say "Claude", wait for the chime, then talk.
 - Super+Space does the same without the wake word. Press it again to end your turn, or while Claude is talking to cut in.
-- While it's listening, double tap Space and the pill turns into a text box so you can type instead. Enter sends, Escape cancels. This is off when a fullscreen app or game has focus.
+- While it's listening, double tap Space and the pill turns into a text box so you can type instead. Enter sends, Escape cancels. Typed questions get typed answers, in a glass bubble next to the pill instead of out loud. This is off when a fullscreen app or game has focus.
+- What you say and what Claude says show up in the pill as live captions, word by word, in step with the voice.
 - After it answers, the mic stays open for a few seconds so you can follow up without saying its name again. If what it hears clearly isn't meant for it, it ignores it.
 - To cut in while it's talking or working, press Super+Space. Interrupting by voice (saying "Claude" or just talking over it) is there but off by default because background noise set it off too easily; turn it on with `"voice_interrupt": true` in the `voice` config.
 - Music and videos get turned down while you're talking to it and come back up after.
@@ -143,7 +155,7 @@ How it behaves:
 - Every wake gets checked against what was actually said before anything happens, so "I asked Claude yesterday" or "the cat clawed it" won't set it off.
 - The models take a few GB of RAM, so it gets out of the way when you need that. While a Steam game is running, or when free memory drops under 4 GB, it shuts the voice off, sends a notification, and starts it again once the game closes or there's room. Pressing Super+Space while it's off just tells you why. You can turn either of these off or change the 4 GB in the app, and `"pause_apps": ["lutris-wrapper"]` in the `voice` config adds non-Steam programs to watch for.
 
-Everything you say is transcribed locally with Parakeet. The voice is Chatterbox Turbo on the GPU, and it switches to Kokoro on the CPU while a game has focus so your frame rate doesn't drop.
+Everything you say is transcribed locally with Parakeet. The voice is Chatterbox Turbo on the GPU. If something fullscreen that isn't a Steam game has focus, it switches to Kokoro on the CPU so your frame rate doesn't drop.
 
 The wake word starts out trained only on synthetic voices. It gets noticeably better if you record yourself and retrain (about 4 minutes). Stop the service first or it'll answer you every time:
 
