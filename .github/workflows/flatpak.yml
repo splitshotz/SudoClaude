@@ -3,6 +3,8 @@ name: Flatpak
 on:
   push:
     tags: ["v*"]
+  pull_request:
+    paths: ["app/**", ".github/workflows/flatpak.yml"]
   workflow_dispatch:
 
 permissions:
