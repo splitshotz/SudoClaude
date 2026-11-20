@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.splitshotz.SudoClaude</id>
+  <name>SudoClaude</name>
+  <summary>Set up, tune and update Claude's computer use on Linux</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-only</project_license>
+  <developer id="io.github.splitshotz">
+    <name>Andrew Marin</name>
+  </developer>
+  <description>
+    <p>SudoClaude lets Claude see your screen, use any app, work next to you and talk back when you call it, on Hyprland. This app installs it, shows how it's doing, holds every setting, and keeps it up to date.</p>
+  </description>
+  <launchable type="desktop-id">io.github.splitshotz.SudoClaude.desktop</launchable>
+  <url type="homepage">https://github.com/splitshotz/SudoClaude</url>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="1.0.0" date="2026-11-19"/>
+  </releases>
+</component>

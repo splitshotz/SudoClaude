@@ -1,0 +1,275 @@
+#!/usr/bin/env python3
+"""Keeps the voice assistant out of the way of games and memory-hungry work.
+
+Stops sudoclaude-voice while a Steam game runs or free memory gets low, and
+starts it again once things calm down. Standard library only, so it costs a
+few MB while it waits.
+"""
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+
+UNIT = "sudoclaude-voice.service"
+CONFIG = os.path.expanduser("~/.config/sudoclaude/config.json")
+RUN = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
+FLAG = os.path.join(RUN, "sudoclaude-voice-paused")
+GIB = 1 << 30
+DEFAULTS = {
+    "pause_for_games": True,
+    "pause_on_low_memory": True,
+    "low_memory_gb": 4.0,
+    "pause_apps": [],
+}
+STEAM_ROOTS = [
+    "~/.local/share/Steam",
+    "~/.steam/steam",
+    "~/.var/app/com.valvesoftware.Steam/.local/share/Steam",
+]
+
+
+def log(msg):
+    print(time.strftime("%H:%M:%S"), msg, flush=True)
+
+
+_cfg = (None, dict(DEFAULTS))
+
+
+def config():
+    global _cfg
+    try:
+        mtime = os.stat(CONFIG).st_mtime
+    except OSError:
+        return dict(DEFAULTS)
+    if mtime != _cfg[0]:
+        cfg = dict(DEFAULTS)
+        try:
+            with open(CONFIG) as f:
+                cfg.update(json.load(f).get("voice", {}))
+        except (OSError, ValueError):
+            pass
+        _cfg = (mtime, cfg)
+    return _cfg[1]
+
+
+def meminfo():
+    out = {}
+    with open("/proc/meminfo") as f:
+        for line in f:
+            k, v = line.split(":", 1)
+            out[k] = int(v.split()[0]) * 1024
+    return out
+
+
+def pressure():
+    """Share of the last 10 s that some task was stalled waiting on memory."""
+    try:
+        with open("/proc/pressure/memory") as f:
+            return float(re.search(r"some avg10=([\d.]+)", f.read()).group(1))
+    except (OSError, AttributeError):
+        return 0.0
+
+
+def game_name(appid):
+    for root in STEAM_ROOTS:
+        root = os.path.expanduser(root)
+        libs = [os.path.join(root, "steamapps")]
+        try:
+            with open(os.path.join(root, "steamapps", "libraryfolders.vdf")) as f:
+                libs += [os.path.join(p, "steamapps") for p in re.findall(r'"path"\s+"([^"]+)"', f.read())]
+        except OSError:
+            pass
+        for lib in libs:
+            try:
+                with open(os.path.join(lib, f"appmanifest_{appid}.acf")) as f:
+                    m = re.search(r'"name"\s+"([^"]+)"', f.read())
+                    if m:
+                        return m.group(1)
+            except OSError:
+                continue
+    return None
+
+
+def find_game(extra):
+    """Name of a running game, or None. Steam starts every game through
+    `reaper SteamLaunch AppId=N`, which nothing else does."""
+    me = os.getpid()
+    for entry in os.scandir("/proc"):
+        if not entry.name.isdigit() or int(entry.name) == me:
+            continue
+        try:
+            with open(f"/proc/{entry.name}/cmdline", "rb") as f:
+                argv = f.read().split(b"\0")
+        except OSError:
+            continue
+        if not argv or not argv[0]:
+            continue
+        exe = os.path.basename(argv[0].decode(errors="replace"))
+        if b"SteamLaunch" in argv:
+            for a in argv:
+                m = re.match(rb"AppId=(\d+)$", a)
+                if m and m.group(1) != b"0":
+                    return game_name(m.group(1).decode()) or "a Steam game"
+        if exe in extra:
+            return exe
+    return None
+
+
+def systemctl(*args):
+    return subprocess.run(["systemctl", "--user", *args], capture_output=True, text=True)
+
+
+def voice_active():
+    return systemctl("is-active", UNIT).stdout.strip() in ("active", "activating", "reloading")
+
+
+def voice_memory():
+    out = systemctl("show", "-p", "MemoryCurrent", "--value", UNIT).stdout.strip()
+    return int(out) if out.isdigit() else 0
+
+
+_note = None
+
+
+def notify(title, body):
+    global _note
+    cmd = ["notify-send", "-a", "SudoClaude", "-i", "audio-input-microphone", "-p", title, body]
+    if _note:
+        cmd[1:1] = ["-r", _note]
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=5).stdout.strip()
+        _note = out if out.isdigit() else None
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+
+def read_flag():
+    try:
+        with open(FLAG) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def write_flag(data):
+    with open(FLAG + ".tmp", "w") as f:
+        json.dump(data, f)
+    os.replace(FLAG + ".tmp", FLAG)
+
+
+def clear_flag():
+    try:
+        os.remove(FLAG)
+    except OSError:
+        pass
+
+
+class Guard:
+    POLL = 2
+    CALM = {"game": 10, "memory": 60}
+
+    def __init__(self):
+        self.paused = read_flag()
+        self.override = False
+        self.calm_since = None
+
+    def reason(self, cfg, mem):
+        if cfg.get("pause_for_games"):
+            game = find_game(set(cfg.get("pause_apps") or []))
+            if game:
+                return "game", game
+        if cfg.get("pause_on_low_memory"):
+            low = float(cfg.get("low_memory_gb") or 4) * GIB
+            if mem["MemAvailable"] < low or pressure() > 20:
+                return "memory", None
+        return None, None
+
+    def calm(self, cfg, mem):
+        """Room for the voice to come back without tipping straight over again."""
+        kind, _ = self.reason(cfg, mem)
+        if kind:
+            return False
+        if self.paused.get("kind") != "memory" and not cfg.get("pause_on_low_memory"):
+            return True
+        need = float(cfg.get("low_memory_gb") or 4) * GIB + self.paused.get("footprint", 0) + GIB
+        return mem["MemAvailable"] > need and pressure() < 5
+
+    def pause(self, kind, game):
+        footprint = voice_memory() or 4 * GIB
+        systemctl("stop", UNIT)
+        self.paused = {"kind": kind, "game": game, "footprint": footprint, "since": time.time()}
+        write_flag(self.paused)
+        self.calm_since = None
+        if kind == "game":
+            log(f"paused for {game}")
+            notify("Claude's voice is off",
+                   f"{game} is running, so the voice assistant is taking a break to free up "
+                   f"{footprint / GIB:.1f} GB. It'll come back when you're done.")
+        else:
+            log("paused, memory low")
+            notify("Claude's voice is off",
+                   "Memory is getting tight, so the voice assistant stepped aside to give "
+                   f"back {footprint / GIB:.1f} GB. It'll come back when there's room.")
+
+    def resume(self):
+        log("resuming")
+        clear_flag()
+        self.paused = None
+        systemctl("start", UNIT)
+        notify("Claude's voice is back", "Say \"Claude\" or press Super+Space.")
+
+    def step(self):
+        cfg = config()
+        mem = meminfo()
+        if self.paused:
+            if voice_active():
+                # Started by hand while paused; leave it alone until the
+                # current reason goes away.
+                log("started by hand, standing down")
+                clear_flag()
+                self.paused, self.override = None, True
+                return
+            if systemctl("is-enabled", UNIT).stdout.strip() not in ("enabled", "static"):
+                clear_flag()
+                self.paused = None
+                return
+            if self.calm(cfg, mem):
+                self.calm_since = self.calm_since or time.monotonic()
+                if time.monotonic() - self.calm_since >= self.CALM.get(self.paused.get("kind"), 30):
+                    self.resume()
+            else:
+                self.calm_since = None
+            return
+        kind, game = self.reason(cfg, mem)
+        if not kind:
+            self.override = False
+        elif not self.override and voice_active():
+            self.pause(kind, game)
+
+    def run(self):
+        log("watching")
+        while True:
+            try:
+                self.step()
+            except Exception as e:  # keep watching whatever happens
+                log(f"error: {e}")
+            time.sleep(self.POLL)
+
+
+def status():
+    flag = read_flag()
+    if not flag:
+        print("running" if voice_active() else "stopped")
+    elif flag.get("kind") == "game":
+        print(f"paused: {flag.get('game')} is running")
+    else:
+        print("paused: memory is tight")
+
+
+if __name__ == "__main__":
+    if sys.argv[1:] == ["status"]:
+        status()
+    else:
+        Guard().run()

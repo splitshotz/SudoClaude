@@ -12,9 +12,31 @@ It runs as a local MCP server, so the Claude desktop app and Claude Code can bot
 |---|---|---|
 | ![Listening](docs/listening.jpg) | ![Corner pill](docs/corner.jpg) | ![Cursor](docs/cursor.jpg) |
 
+## Will it run on my setup?
+
+Short version: you need **Hyprland**. Everything else is either something most Hyprland setups already have or optional.
+
+| | |
+|---|---|
+| **Compositor** | Hyprland, required. Tested on 0.57 with a Lua config, and the classic `hyprland.conf` works too. Claude moves its cursor, types, captures windows and manages workspaces through Hyprland's IPC and Wayland protocols. Sway has a partial backend that mostly works for clicking and typing, but it's untested and has no overlay blur. GNOME, KDE Plasma and X11 aren't supported. |
+| **Distro** | Arch-based (Arch, Garuda, EndeavourOS, CachyOS, Manjaro) for the one-step install, since the installer uses pacman. On anything else the installer checks for what it needs and tells you what to install yourself (Pillow and PyGObject for the system Python, grim, wl-clipboard, libnotify, at-spi2-core). |
+| **Claude** | Claude Code or the Claude desktop app. Voice needs Claude Code logged in, since replies go through it. |
+| **Dotfiles** | Not tied to mine. Works on plain Hyprland. With end-4's dots (illogical-impulse) it also picks up your Material You colors, screen corner rounding and wallpaper for the glass, and puts its keybinds in `custom/keybinds.lua` or `.conf`. Without them it uses its own colors and adds binds to `hyprland.lua` or `.conf`. |
+| **Overlay** | Optional. Needs Quickshell (end-4 already has it). Without it Claude still works, you just don't see the glass pill, edge glow or Claude's cursor. |
+| **Voice** | Optional. PipeWire, a mic, and about 4 GB of RAM while it runs (it steps aside for games, see Voice). An NVIDIA GPU gets the more natural Chatterbox voice; without one it uses Kokoro on the CPU. |
+| **Browser extension** | Optional, Chromium only. Firefox-based browsers like Zen are still fully usable through accessibility, they just don't get the tab-level tools. |
+
 ## Install
 
-You need an Arch-based distro, Hyprland, and Claude Code (or the Claude desktop app). Quickshell is needed for the overlay; the end-4 dots already come with it.
+The easy way is the SudoClaude app. Grab `SudoClaude.flatpak` from the [latest release](https://github.com/splitshotz/SudoClaude/releases/latest) and install it:
+
+```sh
+flatpak install --user SudoClaude.flatpak
+```
+
+It needs Flathub for the runtime (`flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo` if you don't have it). Open SudoClaude from your launcher and it walks you through setup: it checks your system, asks which parts you want and which keys to use, then downloads and installs everything. After that it's where you see what Claude's been up to, change settings and get updates.
+
+Or do it from a terminal:
 
 ```sh
 git clone https://github.com/splitshotz/SudoClaude ~/Projects/SudoClaude
@@ -24,7 +46,15 @@ cd ~/Projects/SudoClaude
 
 The script installs what's missing with pacman, registers the server with Claude Code (`claude mcp add`) and the desktop app (it backs up that config first), and runs a quick self-test. It then asks whether you want the Chromium extension and the voice assistant. If you use the desktop app, quit it from the tray and open it again so it loads the server. In Claude Code it's there in your next session; try asking it to open an app and do something in it.
 
-Nothing in your Hyprland config changes except one thing: if you set up voice, it adds two binds to your user keybinds file (end-4's `custom/keybinds.lua` or `.conf`), Super+Space to talk and Super+Shift+Escape to stop. It checks they're free first and backs the file up. If they're taken, pick your own with `bin/sudoclaude-keybind SUPER+ALT+C SUPER+ALT+X`.
+Nothing in your Hyprland config changes except one thing: if you set up voice, it adds two binds to your user keybinds file (end-4's `custom/keybinds.lua` or `.conf`), Super+Space to talk and Super+Shift+Escape to stop. It checks they're free first and backs the file up. If they're taken, pick your own in the app or with `bin/sudoclaude-keybind SUPER+ALT+C SUPER+ALT+X`.
+
+To remove it, use Uninstall in the app's settings or run `./uninstall.sh` (add `--purge` to delete your settings and the voice models too).
+
+## The app
+
+The app has three pages. Home shows whether computer use, voice and the overlay are running, the last few things you asked Claude, and your version. Settings covers the glass (frost, refraction, tint, light or dark, where the pill sits), the voice, how Claude asks for permission, and your keys, and each section has its own reset to defaults. Updates checks GitHub for new releases, shows what changed and installs them; when there's a new version of the app itself it downloads that too and tells you to reopen it.
+
+If you'd rather not use Flatpak, `bin/sudoclaude-settings` runs the same app straight from the repo (it needs `pyside6` from pacman).
 
 ## What it can do
 
@@ -111,6 +141,7 @@ How it behaves:
 - Music and videos get turned down while you're talking to it and come back up after.
 - It leaves on its own when you're done, or when you say something like "thanks, that's all".
 - Every wake gets checked against what was actually said before anything happens, so "I asked Claude yesterday" or "the cat clawed it" won't set it off.
+- The models take a few GB of RAM, so it gets out of the way when you need that. While a Steam game is running, or when free memory drops under 4 GB, it shuts the voice off, sends a notification, and starts it again once the game closes or there's room. Pressing Super+Space while it's off just tells you why. You can turn either of these off or change the 4 GB in the app, and `"pause_apps": ["lutris-wrapper"]` in the `voice` config adds non-Steam programs to watch for.
 
 Everything you say is transcribed locally with Parakeet. The voice is Chatterbox Turbo on the GPU, and it switches to Kokoro on the CPU while a game has focus so your frame rate doesn't drop.
 
@@ -150,7 +181,10 @@ Settings live in `~/.config/sudoclaude/config.json`:
     "tts_kokoro": {"voice": "af_heart"},
     "followup_seconds": 6,
     "duck": 0.2,
-    "chime": true
+    "chime": true,
+    "pause_for_games": true,
+    "pause_on_low_memory": true,
+    "low_memory_gb": 4
   }
 }
 ```

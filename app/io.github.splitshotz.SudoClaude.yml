@@ -1,0 +1,40 @@
+id: io.github.splitshotz.SudoClaude
+runtime: org.freedesktop.Platform
+runtime-version: '25.08'
+sdk: org.freedesktop.Sdk
+command: sudoclaude-settings
+finish-args:
+  - --share=ipc
+  - --share=network
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  # It installs and configures SudoClaude on the host: its files live in your
+  # home folder and setup runs host commands through flatpak-spawn.
+  - --filesystem=home
+  - --talk-name=org.freedesktop.Flatpak
+modules:
+  - name: pyside6
+    buildsystem: simple
+    build-commands:
+      - mkdir -p /app/pyside
+      - for w in *.whl; do python3 -m zipfile -e "$w" /app/pyside; done
+    sources:
+      - type: file
+        url: https://files.pythonhosted.org/packages/7b/3c/7597d8dcb36aa8315427635ec6ec9d850ffbad4ce78b9118ac854889f2d3/pyside6_essentials-6.12.0-cp310-abi3-manylinux_2_34_x86_64.whl
+        sha256: 16f4b5e41daf49235ae048458243da9efe5f3d8040f9cc5aa454ce69893d3bd9
+      - type: file
+        url: https://files.pythonhosted.org/packages/49/c2/a04fa003b4360e99d8e3fc2829abacf37396ace63ea1cd616402209ec7c6/shiboken6-6.12.0-cp310-abi3-manylinux_2_34_x86_64.whl
+        sha256: 3bde565bb0890044b5c7f63808adddede5abc241e9395a2bfed61919884d6240
+  - name: sudoclaude-settings
+    buildsystem: simple
+    build-commands:
+      - install -d /app/share/sudoclaude-settings
+      - cp -r sudoclaude_app fonts icon.svg /app/share/sudoclaude-settings/
+      - install -Dm755 sudoclaude-settings.sh /app/bin/sudoclaude-settings
+      - install -Dm644 io.github.splitshotz.SudoClaude.desktop /app/share/applications/io.github.splitshotz.SudoClaude.desktop
+      - install -Dm644 io.github.splitshotz.SudoClaude.metainfo.xml /app/share/metainfo/io.github.splitshotz.SudoClaude.metainfo.xml
+      - install -Dm644 icon.svg /app/share/icons/hicolor/scalable/apps/io.github.splitshotz.SudoClaude.svg
+    sources:
+      - type: dir
+        path: .

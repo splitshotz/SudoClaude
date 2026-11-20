@@ -25,8 +25,9 @@ PY
 fi
 
 if systemctl --user list-unit-files sudoclaude-voice.service >/dev/null 2>&1; then
-  systemctl --user disable --now sudoclaude-voice.service 2>/dev/null
-  rm -f "$HOME/.config/systemd/user/sudoclaude-voice.service"
+  systemctl --user disable --now sudoclaude-voice-guard.service sudoclaude-voice.service 2>/dev/null
+  rm -f "$HOME/.config/systemd/user/sudoclaude-voice.service" \
+    "$HOME/.config/systemd/user/sudoclaude-voice-guard.service"
   systemctl --user daemon-reload
   echo "Voice assistant stopped"
 fi
