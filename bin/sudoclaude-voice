@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # listen and stop are meant for keybinds, so they skip Python and just signal
-# the running assistant.
+# the running assistant. While the guard has the voice paused, listen just says so.
+paused="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/sudoclaude-voice-paused"
+if [[ "$1" == listen && -f "$paused" ]]; then
+    why="$(python3 "$(dirname "$(readlink -f "$0")")/sudoclaude-guard" status)"
+    exec notify-send -a SudoClaude -i audio-input-microphone "Claude's voice is taking a break" \
+        "It's off while ${why#paused: } and comes back on its own."
+fi
 case "$1" in
     listen) exec systemctl --user kill --kill-whom=main -s USR1 sudoclaude-voice.service ;;
     stop)   exec systemctl --user kill --kill-whom=main -s USR2 sudoclaude-voice.service ;;

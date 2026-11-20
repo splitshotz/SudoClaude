@@ -56,9 +56,10 @@ fi
 
 step "Service"
 mkdir -p "$HOME/.config/systemd/user"
-sed "s|%h/Projects/SudoClaude|$DIR|" "$DIR/systemd/sudoclaude-voice.service" \
-  > "$HOME/.config/systemd/user/sudoclaude-voice.service"
+for unit in sudoclaude-voice.service sudoclaude-voice-guard.service; do
+  sed "s|%h/Projects/SudoClaude|$DIR|" "$DIR/systemd/$unit" > "$HOME/.config/systemd/user/$unit"
+done
 systemctl --user daemon-reload
-systemctl --user enable --now sudoclaude-voice.service
+systemctl --user enable --now sudoclaude-voice.service sudoclaude-voice-guard.service
 echo
 echo "Say \"Claude\" to try it. Logs: journalctl --user -u sudoclaude-voice -f"
