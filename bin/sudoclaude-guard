@@ -126,8 +126,16 @@ def voice_active():
 
 
 def voice_memory():
-    out = systemctl("show", "-p", "MemoryCurrent", "--value", UNIT).stdout.strip()
-    return int(out) if out.isdigit() else 0
+    """What stopping the voice actually gives back: its anonymous memory, not
+    the page cache systemd also counts against it."""
+    cg = systemctl("show", "-p", "ControlGroup", "--value", UNIT).stdout.strip()
+    try:
+        with open(f"/sys/fs/cgroup{cg}/memory.stat") as f:
+            stat = dict(line.split() for line in f)
+        return int(stat["anon"]) + int(stat.get("shmem", 0))
+    except (OSError, KeyError, ValueError):
+        out = systemctl("show", "-p", "MemoryCurrent", "--value", UNIT).stdout.strip()
+        return int(out) if out.isdigit() else 0
 
 
 _note = None
