@@ -130,26 +130,28 @@ Item {
             Item {
                 id: sub
                 anchors.verticalCenter: parent.verticalCenter
-                height: subText.implicitHeight
-                width: pill.subtitle.length && !pill.typing ? Math.min(subText.implicitWidth, 520) + 10 : 0
-                Behavior on width { SpringAnimation { spring: 4.2; damping: 0.42; epsilon: 0.3 } }
-                clip: true
-                Text {
-                    id: subText
-                    anchors.right: parent.right
+                height: subLine.height
+                // The pill widens with a soft spring that keeps up with each new
+                // word without bouncing.
+                width: pill.subtitle.length && !pill.typing
+                       ? Math.min(subLine.contentWidth, subLine.maxWidth) + 10 : 0
+                Behavior on width { SpringAnimation { spring: 3.4; damping: 0.7; epsilon: 0.3 } }
+                SubtitleLine {
+                    id: subLine
+                    x: 10
+                    width: Math.max(0, sub.width - 10)
                     anchors.verticalCenter: parent.verticalCenter
-                    anchors.verticalCenterOffset: pill.nudge14
                     text: pill.subtitle
                     // Yours is quieter, Claude's is the full label color warmed a
                     // touch toward its orange, tool activity is dim italic.
                     color: pill.who === "claude" ? pill.blend(pill.fg, pill.accent, 0.22)
                          : pill.who === "tool" ? Qt.rgba(pill.fgDim.r, pill.fgDim.g, pill.fgDim.b, 0.8)
                          : pill.fgDim
-                    Behavior on color { ColorAnimation { duration: 200 } }
-                    font.family: pill.fontFamily
-                    font.pixelSize: 14
-                    font.weight: pill.who === "claude" ? Font.Medium : Font.Normal
-                    font.italic: pill.who === "tool"
+                    family: pill.fontFamily
+                    pixelSize: 14
+                    weight: pill.who === "claude" ? Font.Medium : Font.Normal
+                    italic: pill.who === "tool"
+                    nudge: pill.nudge14
                 }
                 opacity: pill.subtitle.length && !pill.typing ? 1 : 0
                 Behavior on opacity { NumberAnimation { duration: 180 } }
