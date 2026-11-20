@@ -14,6 +14,36 @@ finish-args:
   - --filesystem=home
   - --talk-name=org.freedesktop.Flatpak
 modules:
+  # Qt's network library links against Kerberos, which the runtime doesn't ship.
+  - name: krb5
+    subdir: src
+    buildsystem: autotools
+    config-opts:
+      - --disable-static
+      - --disable-rpath
+      - --without-system-verto
+      - --without-keyutils
+      - --without-ldap
+      - --without-libedit
+      - --without-tcl
+      - --localstatedir=/var/lib
+      - --sysconfdir=/etc
+    cleanup:
+      - /bin
+      - /sbin
+      - /include
+      - /lib/pkgconfig
+      - /lib/krb5
+      - /share
+      - /var
+    sources:
+      - type: git
+        url: https://github.com/krb5/krb5.git
+        tag: krb5-1.21.3-final
+        commit: 8f56f544dd179056e9b8d02552e6c5e392eb2966
+      - type: shell
+        commands:
+          - cd src && autoreconf -fi
   - name: pyside6
     buildsystem: simple
     build-commands:
@@ -29,6 +59,8 @@ modules:
   - name: sudoclaude-settings
     buildsystem: simple
     build-commands:
+      # Fails the build if Qt can't load, instead of the app failing to open.
+      - LD_LIBRARY_PATH=/app/lib PYTHONPATH=/app/pyside python3 -c "from PySide6 import QtCore, QtGui, QtNetwork, QtQml, QtQuick"
       - install -d /app/share/sudoclaude-settings
       - cp -r sudoclaude_app fonts icon.svg /app/share/sudoclaude-settings/
       - install -Dm755 sudoclaude-settings.sh /app/bin/sudoclaude-settings

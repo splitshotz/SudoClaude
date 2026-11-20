@@ -16,7 +16,7 @@ import urllib.request
 
 from PySide6.QtCore import Property, QObject, QProcess, QTimer, Signal, Slot
 
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0.1"
 REPO = "splitshotz/SudoClaude"
 REPO_URL = f"https://github.com/{REPO}"
 HOME = os.path.expanduser("~")
