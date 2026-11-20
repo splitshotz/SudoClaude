@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Runs the settings app straight from the source folder (needs pyside6:
+# `sudo pacman -S pyside6`). The Flatpak from the releases page doesn't need it.
+here="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+cd "$here/app" && exec python3 -m sudoclaude_app "$@"

@@ -30,19 +30,32 @@ ask() {  # ask "question" default(y/n) -> 0 for yes
 # Root for pacman: sudo in a terminal, the desktop's password prompt otherwise.
 asroot() { if [[ -t 0 ]]; then sudo "$@"; else pkexec "$@"; fi; }
 
-need=(python python-pillow python-gobject at-spi2-core grim wl-clipboard zenity libnotify)
-missing=()
-for p in "${need[@]}"; do pacman -Qq "$p" >/dev/null 2>&1 || missing+=("$p"); done
-if ((${#missing[@]})); then
-  echo "Installing: ${missing[*]}"
-  asroot pacman -S --needed --noconfirm "${missing[@]}"
-fi
+if command -v pacman >/dev/null; then
+  need=(python python-pillow python-gobject at-spi2-core grim wl-clipboard zenity libnotify)
+  missing=()
+  for p in "${need[@]}"; do pacman -Qq "$p" >/dev/null 2>&1 || missing+=("$p"); done
+  if ((${#missing[@]})); then
+    echo "Installing: ${missing[*]}"
+    asroot pacman -S --needed --noconfirm "${missing[@]}"
+  fi
 
-opt=()
-pacman -Qq tesseract >/dev/null 2>&1 || opt+=(tesseract tesseract-data-eng)
-if ((${#opt[@]})); then
-  if [[ "$OCR" == 1 ]] || { [[ -z "$OCR" ]] && ask "Install tesseract for find_text (OCR)?" y; }; then
-    asroot pacman -S --needed --noconfirm "${opt[@]}"
+  opt=()
+  pacman -Qq tesseract >/dev/null 2>&1 || opt+=(tesseract tesseract-data-eng)
+  if ((${#opt[@]})); then
+    if [[ "$OCR" == 1 ]] || { [[ -z "$OCR" ]] && ask "Install tesseract for find_text (OCR)?" y; }; then
+      asroot pacman -S --needed --noconfirm "${opt[@]}"
+    fi
+  fi
+else
+  # Not Arch: check for the pieces instead of installing them.
+  gaps=()
+  python3 -c "import PIL" 2>/dev/null || gaps+=("Pillow for python3")
+  python3 -c "import gi; gi.require_version('Atspi', '2.0')" 2>/dev/null || gaps+=("PyGObject with AT-SPI")
+  for c in grim wl-copy notify-send; do command -v "$c" >/dev/null || gaps+=("$c"); done
+  if ((${#gaps[@]})); then
+    echo "No pacman here, so install these with your package manager and run this again:"
+    printf '  %s\n' "${gaps[@]}"
+    exit 1
   fi
 fi
 command -v qs >/dev/null || command -v quickshell >/dev/null || \

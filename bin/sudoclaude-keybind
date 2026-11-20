@@ -2,8 +2,11 @@
 # Adds "talk to Claude" and "stop Claude" binds to Hyprland's user config.
 # Works with Lua (hyprland.lua) and classic (hyprland.conf) configs, prefers
 # end-4's custom keybind file, and never touches a combo that's already taken.
-#   sudoclaude-keybind [TALK_COMBO] [STOP_COMBO]   default: SUPER+Space SUPER+SHIFT+Escape
+#   sudoclaude-keybind [--replace] [TALK_COMBO] [STOP_COMBO]
+#   default: SUPER+Space SUPER+SHIFT+Escape. --replace swaps out binds it added before.
 set -euo pipefail
+REPLACE=0
+[[ "${1:-}" == --replace ]] && { REPLACE=1; shift; }
 DIR="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 VOICE="$DIR/bin/sudoclaude-voice"
 TALK="${1:-SUPER+Space}"
@@ -27,9 +30,29 @@ for b in json.load(sys.stdin):
 sys.exit(1)' "$1"
 }
 
-if grep -rqs "sudoclaude-voice listen" "$H"; then
-    echo "Keybinds are already set up."
-    exit 0
+strip_ours() {
+    for f in "$H"/custom/keybinds.lua "$H"/custom/keybinds.conf "$H"/hyprland.lua "$H"/hyprland.conf; do
+        [[ -f "$f" ]] && grep -q "sudoclaude-voice" "$f" || continue
+        cp "$f" "$f.bak-sudoclaude"
+        python3 - "$f" <<'PY'
+import re, sys
+p = sys.argv[1]
+s = open(p).read()
+s = re.sub(r"\n*(?:--|#) SudoClaude[^\n]*\n(?:[^\n]+\n)*", "\n\n", s).replace("\n\n\n", "\n\n")
+open(p, "w").write(s)
+PY
+    done
+}
+
+if grep -rqs "sudoclaude-voice" "$H"; then
+    if ((REPLACE)); then
+        strip_ours
+        hyprctl reload >/dev/null 2>&1 || true
+        sleep 0.5
+    else
+        echo "Keybinds are already set up."
+        exit 0
+    fi
 fi
 
 for combo in "$TALK" "$STOP"; do

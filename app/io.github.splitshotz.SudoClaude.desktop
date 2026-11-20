@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=SudoClaude
+Comment=Set up, tune and update Claude's computer use on Linux
+Exec=sudoclaude-settings
+Icon=io.github.splitshotz.SudoClaude
+Terminal=false
+Type=Application
+Categories=Utility;Settings;
+Keywords=claude;ai;assistant;computer use;voice;
+StartupWMClass=SudoClaude
