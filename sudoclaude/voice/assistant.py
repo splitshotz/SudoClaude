@@ -26,7 +26,7 @@ DEFAULTS = {
     "wake_threshold": 0.55,
     "wake_soft": 0.2,
     "followup_seconds": 6.0,
-    "barge_in_seconds": 0.45,
+    "barge_in_seconds": 0.8,
     "duck": 0.2,
     "chime": True,
     "tts": "chatterbox",
@@ -121,6 +121,9 @@ class Assistant:
         self.shown = False
         self.t_ask = 0.0
         self.phase = ""
+        # Typical mic level of the room when nobody's talking to it, so talking
+        # over Claude has to stand out from music, TV or a fan to count.
+        self.noise = 0.003
         self.said = []
         self.text_mode = False
         self.last_typed = False
@@ -434,6 +437,8 @@ class Assistant:
             self.ring.append(chunk)
             now = time.time()
             p = self.vad(chunk)
+            if p < 0.3:
+                self.noise += (self.mic.level - self.noise) * 0.02
             score, hit = self.score(chunk, p, now)
             if hit or score >= self.cfg["wake_soft"]:
                 log(f"wake candidate {score:.2f}" + (" strong" if hit else ""))
@@ -614,7 +619,9 @@ class Assistant:
                 worker.join(10)
                 return (got[1] if got else "") or "stop"
             speaking = self.speaker.speaking
-            talk = talk + CHUNK_S if (p > 0.7 and speaking) else max(0.0, talk - CHUNK_S / 2)
+            loud = self.mic.level > max(0.006, self.noise * 3.0)
+            talk = (talk + CHUNK_S if (p > 0.85 and loud and speaking)
+                    else max(0.0, talk - CHUNK_S))
             if hit:
                 log("barge-in: wake")
                 self.mouth.stop()
@@ -633,7 +640,7 @@ class Assistant:
                 self.speaker.volume(0.25)
                 got = self.capture(prefix=self.utterance_prefix(), live=False)
                 said = (got[1] if got else "").strip()
-                if len(said.split()) >= 2 or STOP.match(said):
+                if len(said.split()) >= 3 or STOP.match(said) or has_wake(said):
                     log("barge-in: speech", repr(said))
                     self.mouth.stop()
                     self.agent.interrupt()
