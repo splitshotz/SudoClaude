@@ -18,6 +18,14 @@ jobs:
       options: --privileged
     steps:
       - uses: actions/checkout@v4
+      # The image's preinstalled runtimes sit in a lower overlayfs layer, so
+      # updating them fails with "Invalid cross-device link" (upstream #267).
+      # Copying the install into the writable layer lets the update rename.
+      - name: Move the Flatpak install into the writable layer
+        run: |
+          cp -a /var/lib/flatpak /var/lib/flatpak.copy
+          rm -rf /var/lib/flatpak
+          mv /var/lib/flatpak.copy /var/lib/flatpak
       - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
           bundle: SudoClaude.flatpak
