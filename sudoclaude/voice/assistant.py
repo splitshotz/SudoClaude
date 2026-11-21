@@ -26,7 +26,10 @@ LISTEN_ON_READY = os.path.join(RUNTIME, "sudoclaude-voice.listen-on-ready")
 CONFIG = os.path.expanduser("~/.config/sudoclaude/config.json")
 
 DEFAULTS = {
-    "enabled": True,
+    # Off by default: Super+Space opens typing-only Claude, which loads no speech
+    # models. Turning the voice on costs a few GB of RAM/VRAM while it runs.
+    "enabled": False,
+    "idle_exit_minutes": 20,
     "input": None,
     "wake_models": ["claude.onnx", "hey_claude.onnx"],
     "wake_threshold": 0.55,
@@ -807,7 +810,7 @@ def fix_env():
 def main():
     fix_env()
     cfg = load_config()
-    if not cfg.get("enabled", True):
+    if not cfg.get("enabled", False):
         log("voice disabled in config")
         return
     try:

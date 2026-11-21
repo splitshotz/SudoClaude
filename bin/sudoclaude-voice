@@ -14,8 +14,8 @@ if [[ "$1" == listen ]]; then
     # Voice switched off in settings, or the guard paused it for low memory:
     # typing-only Claude, which loads no speech models and starts at once.
     voice_on="$(/usr/bin/python3 -c 'import json,os
-try: print(json.load(open(os.path.expanduser("~/.config/sudoclaude/config.json"))).get("voice",{}).get("enabled",True) is not False)
-except Exception: print(True)' 2>/dev/null)"
+try: print(json.load(open(os.path.expanduser("~/.config/sudoclaude/config.json"))).get("voice",{}).get("enabled",False) is True)
+except Exception: print(False)' 2>/dev/null)"
     if [[ -n "$game" || "$voice_on" != True || -f "$run/sudoclaude-voice-paused" ]]; then
         pid="$(cat "$run/sudoclaude-text.pid" 2>/dev/null)"
         if [[ -n "$pid" ]] && grep -qa sudoclaude.voice "/proc/$pid/cmdline" 2>/dev/null; then

@@ -139,7 +139,7 @@ class TextAssistant(Assistant):
                 break
             # Typing is the mode while the voice is switched off or a game runs;
             # otherwise this steps aside once the voice is available again.
-            voice_on = load_config().get("enabled", True) is not False
+            voice_on = load_config().get("enabled", False) is True
             try:
                 from sudoclaude import gamemode
                 in_game = bool(gamemode.running())

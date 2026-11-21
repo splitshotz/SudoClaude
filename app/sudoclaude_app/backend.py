@@ -37,7 +37,8 @@ SECTIONS = {
         "glass.appearance": "auto",
     },
     "voice": {
-        "voice.enabled": True,
+        "voice.enabled": False,
+        "voice.idle_exit_minutes": 20,
         "voice.name": "",
         "voice.tts": "chatterbox",
         "voice.tts_kokoro.voice": "af_heart",

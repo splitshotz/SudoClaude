@@ -98,7 +98,8 @@ Window {
                                             onOpenUpdates: scene.tab = "updates"
                                             onShowDoctor: { doctorSheet.text = "Checking…"; doctorSheet.ok = true; doctorSheet.open = true; backend.doctor() } } }
         PageHost { name: "settings"; SettingsPage { anchors.fill: parent; shown: parent.on
-                                                    onAskUninstall: uninstallSheet.open = true } }
+                                                    onAskUninstall: uninstallSheet.open = true
+                                                    onAskEnableVoice: voiceSheet.open = true } }
         PageHost { name: "updates"; UpdatesPage { anchors.fill: parent; shown: parent.on } }
 
         // ---- chrome -------------------------------------------------------------
@@ -153,6 +154,40 @@ Window {
                 }
             }
             GlassButton { text: "Close"; onClicked: doctorSheet.open = false }
+        }
+
+        Sheet {
+            id: voiceSheet
+            title: "Turn on voice mode?"
+            cardWidth: 640
+            onDismissed: open = false
+            Text {
+                width: parent.width
+                textFormat: Text.StyledText
+                text: "<b>What it costs</b><br>"
+                    + "• While it runs, the speech models use about 4–6 GB of RAM, and the Natural voice about 3 GB of GPU memory on NVIDIA.<br>"
+                    + "• The first Super+Space after it's been off takes a few seconds while the models load.<br>"
+                    + "• “Claude” as a wake word only works while it's running.<br>"
+                    + "• A game that starts while it's using GPU memory can run slower until you restart the game.<br><br>"
+                    + "<b>What keeps it out of the way</b><br>"
+                    + "• It starts only when you press Super+Space, and quits after the “Leave after unused” time.<br>"
+                    + "• It quits on its own when a game starts, and never loads during one; Super+Space opens typing instead.<br>"
+                    + "• Pick the Light voice to keep it off the GPU entirely.<br>"
+                    + "• Start games with it closed, or turn voice mode off again, if a game runs short on memory."
+                color: Theme.dim
+                font.family: Theme.sans
+                font.pixelSize: 15
+                wrapMode: Text.Wrap
+                lineHeight: 1.2
+            }
+            Row {
+                spacing: 12
+                GlassButton {
+                    text: "Turn on voice"
+                    onClicked: { backend.set("voice.enabled", true); voiceSheet.open = false }
+                }
+                GlassButton { text: "Keep typing only"; onClicked: voiceSheet.open = false }
+            }
         }
 
         Sheet {

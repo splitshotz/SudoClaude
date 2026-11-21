@@ -67,4 +67,5 @@ systemctl --user daemon-reload
 systemctl --user disable sudoclaude-voice.service 2>/dev/null || true
 systemctl --user enable --now sudoclaude-voice-guard.service
 echo
-echo "Press Super+Space to try it. Logs: journalctl --user -u sudoclaude-voice -f"
+echo "Voice mode is off by default. Turn it on in the SudoClaude app (Settings > Voice),"
+echo "then press Super+Space. Logs: journalctl --user -u sudoclaude-voice -f"
