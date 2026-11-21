@@ -230,9 +230,10 @@ class Assistant:
         log("stop pressed")
         self.cancel.set()
         self.mouth.stop()
-        if self.shown:
-            self.ui(voice="", transcript="", level=0, typing=False, bubble=False)
-            self.shown = False
+        # Always clear the pill, including a typing box that never set `shown`,
+        # so the overlay has nothing left to show and quits.
+        self.ui(voice="", transcript="", level=0, typing=False, bubble=False)
+        self.shown = False
         threading.Thread(target=self.agent.interrupt, daemon=True).start()
         try:
             # computer use stops too, if Claude was in the middle of it
