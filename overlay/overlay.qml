@@ -112,6 +112,21 @@ ShellRoot {
 
     readonly property bool present: active || voice !== ""
 
+    // Nothing to show: quit the whole process, so no full-screen glass layer is
+    // left mapped (and blurred by the compositor) between uses or under games.
+    // Clients start it again the moment there's something to show. The delay
+    // lets the pill finish its Done/Stopped fade first.
+    // Typing only shows alongside voice ("listening"); a leftover typing flag from
+    // a client that died doesn't count. With no client connected at all, there's
+    // nothing that could still want the pill.
+    readonly property bool showing: sockets.length > 0 && (present || bubble)
+    Timer {
+        id: idleQuit
+        interval: 6000
+        running: !shell.showing
+        onTriggered: if (!shell.showing) Qt.quit()
+    }
+
     function send(obj) {
         const line = JSON.stringify(obj) + "\n"
         for (const s of shell.sockets) {

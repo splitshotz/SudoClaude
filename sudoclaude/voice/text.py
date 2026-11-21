@@ -1,4 +1,5 @@
-"""Claude by typing only, for when the voice is off to save memory.
+"""Claude by typing only, for when the voice is switched off in settings or
+paused to save memory.
 
 The guard stops the voice service during games and when memory is low, since
 the speech models are what's heavy. Super+Space then starts this instead: the
@@ -134,14 +135,26 @@ class TextAssistant(Assistant):
                     self.finish(quiet=True)
                 last = time.time()
                 continue
-            if time.time() - last > IDLE_EXIT or not os.path.exists(PAUSED):
+            if time.time() - last > IDLE_EXIT:
                 break
+            # Typing is the only mode when the voice is switched off; otherwise
+            # this steps aside once the guard lets the voice back.
+            voice_on = load_config().get("enabled", True) is not False
+            if voice_on and not os.path.exists(PAUSED):
+                break
+            try:
+                from sudoclaude import gamemode
+                if gamemode.running():
+                    log("text mode leaving: a game is running")
+                    break
+            except Exception:
+                pass
         self.shutdown()
 
     def shutdown(self, *_):
         self.hook_esc(False)
         self.stopped.set()
-        self.ui(voice="")
+        self.ui(voice="", typing=False, bubble=False, transcript="")
 
 
 def running():
