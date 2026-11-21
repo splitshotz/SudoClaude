@@ -20,10 +20,16 @@ TYPE_FLAG = os.path.join(RUNTIME, "sudoclaude-type")
 STOP_FILE = os.path.join(RUNTIME, "sudoclaude-voice.stop")
 ABORT_FILE = os.path.join(RUNTIME, "sudoclaude.abort")
 OWN_ESC_FILE = os.path.join(RUNTIME, "sudoclaude.own-esc")
+# bin/sudoclaude-voice listen leaves this when it had to start the service, so
+# the press that started it also starts listening once the models are loaded.
+LISTEN_ON_READY = os.path.join(RUNTIME, "sudoclaude-voice.listen-on-ready")
 CONFIG = os.path.expanduser("~/.config/sudoclaude/config.json")
 
 DEFAULTS = {
-    "enabled": True,
+    # Off by default: Super+Space opens typing-only Claude, which loads no speech
+    # models. Turning the voice on costs a few GB of RAM/VRAM while it runs.
+    "enabled": False,
+    "idle_exit_minutes": 20,
     "input": None,
     "wake_models": ["claude.onnx", "hey_claude.onnx"],
     "wake_threshold": 0.55,
@@ -140,6 +146,8 @@ class Assistant:
         self.typed = queue.Queue()
         self.space_hook = False
         self.esc_hook = False
+        self.last_used = time.monotonic()
+        self._exit_checked = 0.0
 
         sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
         from sudoclaude.compositor import detect
@@ -476,11 +484,36 @@ class Assistant:
         except Exception as e:
             log("space hook:", repr(e))
 
+    def should_exit(self):
+        """The voice holds a few GB of RAM and VRAM, so it leaves on its own when
+        a game starts or after it's gone unused for idle_exit_minutes (0 = never).
+        Super+Space starts it again."""
+        now = time.monotonic()
+        if now - self._exit_checked < 1.0:
+            return None
+        self._exit_checked = now
+        try:
+            sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+            from sudoclaude import gamemode
+            game = gamemode.running()
+            if game:
+                return f"{game} is running"
+        except Exception:
+            pass
+        mins = float(self.cfg.get("idle_exit_minutes", 20) or 0)
+        if mins and now - self.last_used > mins * 60:
+            return f"unused for {mins:g} min"
+        return None
+
     def idle(self):
         for w in self.wakes:
             w.reset()
         self.mic.drain()
         while not self.stopped.is_set():
+            why = self.should_exit()
+            if why:
+                log("exiting:", why)
+                raise SystemExit(0)
             if self.manual.is_set():
                 self.manual.clear()
                 return "manual"
@@ -732,10 +765,16 @@ class Assistant:
         threading.Thread(target=self.agent.keep_warm, daemon=True).start()
         threading.Thread(target=self.watch_stop, daemon=True).start()
         log("ready")
+        try:
+            os.remove(LISTEN_ON_READY)
+            self.manual.set()
+        except OSError:
+            pass
         while not self.stopped.is_set():
             try:
                 strong = self.idle()
                 self.engage(strong)
+                self.last_used = time.monotonic()
             except SystemExit:
                 break
             except Exception as e:
@@ -771,12 +810,23 @@ def fix_env():
 def main():
     fix_env()
     cfg = load_config()
-    if not cfg.get("enabled", True):
+    if not cfg.get("enabled", False):
         log("voice disabled in config")
         return
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+        from sudoclaude import gamemode
+        game = gamemode.running(force=True)
+        if game:
+            log(f"not starting: {game} is running")
+            return
+    except Exception:
+        pass
     a = Assistant(cfg)
     signal.signal(signal.SIGTERM, lambda *x: (a.shutdown(), os._exit(0)))
     signal.signal(signal.SIGINT, lambda *x: (a.shutdown(), os._exit(0)))
     signal.signal(signal.SIGUSR1, a.on_key)
     signal.signal(signal.SIGUSR2, lambda *x: a.on_overlay_stop())
     a.run()
+    a.shutdown()
+    os._exit(0)

@@ -6,6 +6,7 @@ Item {
     id: page
     property bool shown: true
     signal askUninstall()
+    signal askEnableVoice()
 
     function v(path) { Theme.cfgRev; return backend.get(path) }
     readonly property var st: backend.status || ({})
@@ -147,9 +148,20 @@ Item {
                 shown: page.shown
 
                 SettingRow {
-                    title: "Listen for “Claude”"
-                    detail: "Turn the voice assistant on or off."
-                    GToggle { checked: page.v("voice.enabled"); onToggled: x => backend.set("voice.enabled", x) }
+                    title: "Voice mode"
+                    detail: page.v("voice.enabled")
+                            ? "Super+Space starts the voice; it leaves when unused or when a game starts."
+                            : "Off: Super+Space opens Claude for typing, which loads nothing heavy."
+                    // Turning it on goes through a sheet that explains the cost first.
+                    GToggle { checked: page.v("voice.enabled") === true
+                              onToggled: x => x ? page.askEnableVoice() : backend.set("voice.enabled", false) }
+                }
+                SettingRow {
+                    title: "Leave after unused"
+                    detail: "The voice quits after this long without being used, giving its memory back. 0 keeps it running."
+                    GSlider { width: 300; from: 0; to: 120; step: 5; decimals: 0; suffix: " min"
+                              value: page.v("voice.idle_exit_minutes")
+                              onMoved: x => backend.set("voice.idle_exit_minutes", Math.round(x)) }
                 }
                 SettingRow {
                     title: "What Claude calls you"

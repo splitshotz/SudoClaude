@@ -132,9 +132,13 @@ It's built like Apple's Liquid Glass. It blurs what's actually behind it (the wa
 
 It runs on Quickshell as its own layer and your mouse goes straight through everything except the pill. It shows up in your own screenshots and recordings like any other part of the screen; Claude's screenshots hide it for a frame so it doesn't get in Claude's way. The blur comes from layer rules the server adds at runtime, so nothing in your config changes.
 
+## Typing and voice
+
+Super+Space opens Claude for typing: a text box in the pill, with typed answers in a glass bubble next to it. That's the default, and it loads nothing heavy (about 90 MB), so it's fine to use in the middle of a game. It closes when you're done, and the overlay goes with it a few seconds later.
+
 ## Voice
 
-Say "Claude" and talk. It's a separate service that's off until you set it up:
+Voice mode is optional and off by default. Say "Claude" and talk. It's a separate service you set up first, then turn on under Settings → Voice:
 
 ```sh
 ./install-voice.sh
@@ -153,7 +157,8 @@ How it behaves:
 - Music and videos get turned down while you're talking to it and come back up after.
 - It leaves on its own when you're done, or when you say something like "thanks, that's all".
 - Every wake gets checked against what was actually said before anything happens, so "I asked Claude yesterday" or "the cat clawed it" won't set it off.
-- The models take a few GB of RAM, so it gets out of the way when you need that. While a Steam game is running, or when free memory drops under 4 GB, it shuts the voice off, sends a notification, and starts it again once the game closes or there's room. Super+Space still works while it's off: it opens the pill for typing, with typed answers, since that part needs none of the speech models. You can turn either of these off or change the 4 GB in the app, and `"pause_apps": ["lutris-wrapper"]` in the `voice` config adds non-Steam programs to watch for.
+- The models take about 4–6 GB of RAM (and about 3 GB of GPU memory for the Natural voice), so it only runs on demand. The first Super+Space starts it (a few seconds while the models load); it quits after `idle_exit_minutes` unused (20 by default, set in the app), and the wake word only works while it's running.
+- Games: it quits as soon as a game starts and never loads during one. Super+Space then opens typing instead. A game counts if Steam launched it, it's a known emulator or recomp, a Windows .exe under Wine/Proton, or a fullscreen window; `"game_apps": ["name"]` in the config adds more. When free memory drops under 4 GB it also steps aside.
 
 Everything you say is transcribed locally with Parakeet. The voice is Chatterbox Turbo on the GPU. If something fullscreen that isn't a Steam game has focus, it switches to Kokoro on the CPU so your frame rate doesn't drop.
 

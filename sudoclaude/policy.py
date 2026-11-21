@@ -359,6 +359,12 @@ class Policy:
         # The overlay already shows when Claude starts and stops; popups on top of
         # it are noise unless asked for.
         n = self.cfg.get("notifications")
+        try:
+            from . import gamemode
+            if gamemode.running():
+                return False  # nothing pops up over a game
+        except Exception:
+            pass
         return n == "always" or (n and not getattr(self, "quiet", False))
 
     def activate(self):

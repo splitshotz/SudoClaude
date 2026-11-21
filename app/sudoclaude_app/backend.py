@@ -37,7 +37,8 @@ SECTIONS = {
         "glass.appearance": "auto",
     },
     "voice": {
-        "voice.enabled": True,
+        "voice.enabled": False,
+        "voice.idle_exit_minutes": 20,
         "voice.name": "",
         "voice.tts": "chatterbox",
         "voice.tts_kokoro.voice": "af_heart",
@@ -380,8 +381,10 @@ class Backend(QObject):
             code, _ = run('test -f "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/sudoclaude-voice-paused"',
                           timeout=5, shell=True)
             if code != 0:
-                run(["systemctl", "--user", "restart", "sudoclaude-voice"], timeout=10)
-            self.toast.emit("Voice restarted with your changes")
+                # try-restart: the voice runs on demand (Super+Space), so only
+                # restart it if it's running; otherwise it picks changes up next start.
+                run(["systemctl", "--user", "try-restart", "sudoclaude-voice"], timeout=10)
+            self.toast.emit("Voice will use your changes")
 
     # ---- actions ----------------------------------------------------------------
 

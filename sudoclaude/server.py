@@ -922,6 +922,8 @@ class Desktop:
         self.begin("Pressing keys", f"→ {w['app']}", win=w)
         for _ in range(int(repeat)):
             for mods, code, raw in parsed:
+                if code == 1:
+                    self.policy.mark_own_esc()
                 mod_s = " ".join(dict.fromkeys(MOD_HYPR[m] for m in mods))
                 name = next((n for n, c in NAMED_KEYS.items() if c == code), raw)
                 key = XKB_NAMES.get(name, name)
@@ -982,6 +984,8 @@ class Desktop:
         target = "__shell__" if self._is_wm_bind(mods, code) else self.focused_app()
         self.policy.require(target, "type")
         self.begin("Holding keys", keys)
+        if code == 1:
+            self.policy.mark_own_esc()
         for m in mods:
             self.kbd.key(m, True)
         self.kbd.key(code, True)

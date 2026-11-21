@@ -13,6 +13,7 @@ SOCK = os.path.join(RUNTIME, "sudoclaude-overlay.sock")
 LOG = os.path.join(RUNTIME, "sudoclaude-overlay.log")
 STAMP = os.path.join(RUNTIME, "sudoclaude-overlay.stamp")
 PIDFILE = os.path.join(RUNTIME, "sudoclaude-overlay.pid")
+CONFIG = os.path.expanduser("~/.config/sudoclaude/config.json")
 
 
 def _end_previous():
@@ -68,13 +69,77 @@ class Overlay:
         self._lock = threading.Lock()
         self.state = {}
         try:
-            with open(os.path.expanduser("~/.config/sudoclaude/config.json")) as f:
+            with open(CONFIG) as f:
                 style = json.load(f).get("overlay_style")
             if style:
                 self.state["style"] = style
         except (OSError, ValueError):
             pass
         self._shape_sent = False
+        self._cfg = (None, True)
+        self._game = None
+        threading.Thread(target=self._game_watch, daemon=True).start()
+
+    def enabled(self):
+        """config "overlay": false turns the overlay off for every client."""
+        try:
+            mtime = os.stat(CONFIG).st_mtime
+        except OSError:
+            return True
+        if mtime != self._cfg[0]:
+            try:
+                with open(CONFIG) as f:
+                    on = json.load(f).get("overlay", True) is not False
+            except (OSError, ValueError):
+                on = True
+            self._cfg = (mtime, on)
+        return self._cfg[1]
+
+    def blocked(self):
+        """Why nothing should be drawn right now, or None. Games don't block it:
+        the overlay process quits itself a few seconds after it stops showing
+        anything (overlay.qml), so over a game it only exists while you're
+        actually using it."""
+        if not self.enabled():
+            return "off"
+        return None
+
+    def _game_watch(self):
+        # "overlay": false switched on while it's up: take it down within a second.
+        while True:
+            time.sleep(1)
+            try:
+                if self.blocked():
+                    self.shutdown_process()
+            except Exception:
+                pass
+
+    def shutdown_process(self):
+        """Quit the shared Quickshell overlay so nothing of it is left drawing or
+        holding GPU memory. The next allowed send starts it again."""
+        with self._lock:
+            s, self.sock = self.sock, None
+            if s:
+                try:
+                    s.sendall(b'{"quit": true}\n')
+                except OSError:
+                    pass
+                try:
+                    s.close()
+                except OSError:
+                    pass
+        if not s:
+            # Maybe another client (the voice assistant, another session) has it up.
+            try:
+                probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                probe.settimeout(0.5)
+                probe.connect(SOCK)
+                probe.sendall(b'{"quit": true}\n')
+                probe.close()
+            except OSError:
+                return
+        time.sleep(0.3)
+        _end_previous()
 
     def _shape(self):
         """Corner radii that match this desktop: Hyprland's window rounding, and
@@ -98,6 +163,7 @@ class Overlay:
                 self.comp.overlay_rules()
             except Exception:
                 pass
+    @property
     def available(self):
         return bool(self.bin) and os.path.exists(QML)
 
@@ -125,7 +191,7 @@ class Overlay:
     def _ensure(self):
         if self.sock:
             return True
-        if not self.available or time.time() - self.failed_at < 30:
+        if self.blocked() or not self.available or time.time() - self.failed_at < 30:
             return False
         try:
             try:
@@ -233,6 +299,8 @@ class Overlay:
         for k, v in msg.items():
             if k not in ("click", "quit"):
                 self.state[k] = v
+        if self.blocked():
+            return
         with self._lock:
             if not self.sock and not ((msg.get("active") or msg.get("voice")) and self._ensure()):
                 return
