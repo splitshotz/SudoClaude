@@ -111,6 +111,10 @@ class Overlay:
             try:
                 if self.blocked():
                     self.shutdown_process()
+                # The overlay quits itself when idle; collect it so no zombie lingers.
+                proc = getattr(self, "_proc", None)
+                if proc is not None and proc.poll() is not None:
+                    self._proc = None
             except Exception:
                 pass
 
@@ -185,6 +189,7 @@ class Overlay:
         proc = subprocess.Popen([self.bin, "-p", QML], env=env, stdout=log,
                                 stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                                 start_new_session=True)
+        self._proc = proc  # reaped by _game_watch once it quits itself
         with open(PIDFILE, "w") as f:
             f.write(str(proc.pid))
 
