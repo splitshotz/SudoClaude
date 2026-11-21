@@ -60,6 +60,11 @@ for unit in sudoclaude-voice.service sudoclaude-voice-guard.service; do
   sed "s|%h/Projects/SudoClaude|$DIR|" "$DIR/systemd/$unit" > "$HOME/.config/systemd/user/$unit"
 done
 systemctl --user daemon-reload
-systemctl --user enable --now sudoclaude-voice.service sudoclaude-voice-guard.service
+# The voice runs on demand: Super+Space starts it, and it exits by itself after
+# idle_exit_minutes unused or when a game starts, so it isn't holding GBs of
+# RAM/VRAM all day. Set voice.idle_exit_minutes to 0 and enable the unit to keep
+# it always listening for "Claude".
+systemctl --user disable sudoclaude-voice.service 2>/dev/null || true
+systemctl --user enable --now sudoclaude-voice-guard.service
 echo
-echo "Say \"Claude\" to try it. Logs: journalctl --user -u sudoclaude-voice -f"
+echo "Press Super+Space to try it. Logs: journalctl --user -u sudoclaude-voice -f"

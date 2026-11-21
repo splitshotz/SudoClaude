@@ -1,22 +1,43 @@
 #!/usr/bin/env bash
-# listen and stop are meant for keybinds, so they skip Python and just signal
-# the running assistant.
+# listen and stop are meant for keybinds, so they skip the heavy Python and just
+# signal the running assistant (or start it).
 run="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 here="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 venv="${SUDOCLAUDE_VENV:-$HOME/.local/share/sudoclaude/venv}"
-# While the guard has the voice off for a game or low memory, Super+Space opens
-# a typing-only Claude instead, which skips the heavy speech models.
-if [[ "$1" == listen && -f "$run/sudoclaude-voice-paused" ]]; then
-    pid="$(cat "$run/sudoclaude-text.pid" 2>/dev/null)"
-    if [[ -n "$pid" ]] && grep -qa sudoclaude.voice "/proc/$pid/cmdline" 2>/dev/null; then
-        exec kill -USR1 "$pid"
+unit=sudoclaude-voice.service
+
+if [[ "$1" == listen ]]; then
+    # While a game runs SudoClaude stays out of sight entirely: no overlay, no
+    # voice models in VRAM. Say so instead of doing nothing silently.
+    game="$(cd "$here" && /usr/bin/python3 -m sudoclaude.gamemode 2>/dev/null)"
+    if [[ -n "$game" && "$game" != "no game" ]]; then
+        exec notify-send -a SudoClaude -i audio-input-microphone -t 2500 \
+            "SudoClaude is paused" "$game is running. Close it to talk to Claude."
     fi
-    cd "$here" && exec setsid "$venv/bin/python" -m sudoclaude.voice text \
-        > /dev/null 2>> "$run/sudoclaude-text.err" < /dev/null
+    # The guard paused voice for low memory: typing-only Claude, no speech models.
+    if [[ -f "$run/sudoclaude-voice-paused" ]]; then
+        pid="$(cat "$run/sudoclaude-text.pid" 2>/dev/null)"
+        if [[ -n "$pid" ]] && grep -qa sudoclaude.voice "/proc/$pid/cmdline" 2>/dev/null; then
+            exec kill -USR1 "$pid"
+        fi
+        cd "$here" && exec setsid "$venv/bin/python" -m sudoclaude.voice text \
+            > /dev/null 2>> "$run/sudoclaude-text.err" < /dev/null
+    fi
+    # On demand: the voice isn't kept running (it exits after idle_exit_minutes
+    # unused, or when a game starts), so the first press starts it and it begins
+    # listening as soon as its models are loaded.
+    state="$(systemctl --user is-active "$unit")"
+    if [[ "$state" != active ]]; then
+        touch "$run/sudoclaude-voice.listen-on-ready"
+        [[ "$state" == activating ]] && exit 0
+        notify-send -a SudoClaude -i audio-input-microphone -t 3000 \
+            "Starting Claude's voice" "It'll start listening in a few seconds."
+        exec systemctl --user start --no-block "$unit"
+    fi
+    exec systemctl --user kill --kill-whom=main -s USR1 "$unit"
 fi
 case "$1" in
-    listen) exec systemctl --user kill --kill-whom=main -s USR1 sudoclaude-voice.service ;;
     # The assistant watches this file, which is quicker than a signal mid-answer.
-    stop)   exec touch "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/sudoclaude-voice.stop" ;;
+    stop) exec touch "$run/sudoclaude-voice.stop" ;;
 esac
 cd "$here" && exec "$venv/bin/python" -m sudoclaude.voice "$@"

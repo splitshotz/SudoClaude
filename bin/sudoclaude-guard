@@ -93,8 +93,17 @@ def game_name(appid):
 
 
 def find_game(extra):
-    """Name of a running game, or None. Steam starts every game through
-    `reaper SteamLaunch AppId=N`, which nothing else does."""
+    """Name of a running game, or None. Uses the same detector as the overlay
+    and the voice (Steam, known emulators/recomps, Wine .exe, fullscreen game
+    windows), then falls back to the Steam-only scan below."""
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        from sudoclaude import gamemode
+        name = gamemode.running(force=True)
+        if name:
+            return name
+    except Exception:
+        pass
     me = os.getpid()
     for entry in os.scandir("/proc"):
         if not entry.name.isdigit() or int(entry.name) == me:
@@ -211,7 +220,9 @@ class Guard:
         write_flag(self.paused)
         self.calm_since = None
         if kind == "game":
+            # No popup over a game; the voice also leaves on its own for games.
             log(f"paused for {game}")
+            return
             notify("Claude's voice is off",
                    f"{game} is running, so the voice assistant is taking a break to free up "
                    f"{footprint / GIB:.1f} GB. Super+Space still works if you type.")
