@@ -6,8 +6,6 @@ import subprocess
 import threading
 import time
 
-from . import gamemode
-
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 QML = os.path.join(HERE, "overlay", "overlay.qml")
 RUNTIME = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
@@ -98,16 +96,16 @@ class Overlay:
         return self._cfg[1]
 
     def blocked(self):
-        """Why nothing should be drawn right now, or None."""
+        """Why nothing should be drawn right now, or None. Games don't block it:
+        the overlay process quits itself a few seconds after it stops showing
+        anything (overlay.qml), so over a game it only exists while you're
+        actually using it."""
         if not self.enabled():
             return "off"
-        game = gamemode.running()
-        if game != self._game:
-            self._game = game
-        return "game" if game else None
+        return None
 
     def _game_watch(self):
-        # A game can start while the pill is up; take it down within a second.
+        # "overlay": false switched on while it's up: take it down within a second.
         while True:
             time.sleep(1)
             try:

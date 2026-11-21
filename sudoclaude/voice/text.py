@@ -15,7 +15,7 @@ from .assistant import RUNTIME, TYPE_FLAG, Assistant, load_config, log
 
 PIDFILE = os.path.join(RUNTIME, "sudoclaude-text.pid")
 PAUSED = os.path.join(RUNTIME, "sudoclaude-voice-paused")
-IDLE_EXIT = 600
+IDLE_EXIT = 600  # quits after 10 min unused (the overlay is already gone by then)
 
 
 class _Quiet:
@@ -137,18 +137,16 @@ class TextAssistant(Assistant):
                 continue
             if time.time() - last > IDLE_EXIT:
                 break
-            # Typing is the only mode when the voice is switched off; otherwise
-            # this steps aside once the guard lets the voice back.
+            # Typing is the mode while the voice is switched off or a game runs;
+            # otherwise this steps aside once the voice is available again.
             voice_on = load_config().get("enabled", True) is not False
-            if voice_on and not os.path.exists(PAUSED):
-                break
             try:
                 from sudoclaude import gamemode
-                if gamemode.running():
-                    log("text mode leaving: a game is running")
-                    break
+                in_game = bool(gamemode.running())
             except Exception:
-                pass
+                in_game = False
+            if voice_on and not in_game and not os.path.exists(PAUSED):
+                break
         self.shutdown()
 
     def shutdown(self, *_):

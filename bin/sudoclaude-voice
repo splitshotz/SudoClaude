@@ -7,19 +7,16 @@ venv="${SUDOCLAUDE_VENV:-$HOME/.local/share/sudoclaude/venv}"
 unit=sudoclaude-voice.service
 
 if [[ "$1" == listen ]]; then
-    # While a game runs SudoClaude stays out of sight entirely: no overlay, no
-    # voice models in VRAM. Say so instead of doing nothing silently.
+    # During a game the heavy voice models never load: Super+Space opens the
+    # light typing box instead, which (with its overlay) closes again when done.
     game="$(cd "$here" && /usr/bin/python3 -m sudoclaude.gamemode 2>/dev/null)"
-    if [[ -n "$game" && "$game" != "no game" ]]; then
-        exec notify-send -a SudoClaude -i audio-input-microphone -t 2500 \
-            "SudoClaude is paused" "$game is running. Close it to talk to Claude."
-    fi
+    [[ "$game" == "no game" ]] && game=""
     # Voice switched off in settings, or the guard paused it for low memory:
     # typing-only Claude, which loads no speech models and starts at once.
     voice_on="$(/usr/bin/python3 -c 'import json,os
 try: print(json.load(open(os.path.expanduser("~/.config/sudoclaude/config.json"))).get("voice",{}).get("enabled",True) is not False)
 except Exception: print(True)' 2>/dev/null)"
-    if [[ "$voice_on" != True || -f "$run/sudoclaude-voice-paused" ]]; then
+    if [[ -n "$game" || "$voice_on" != True || -f "$run/sudoclaude-voice-paused" ]]; then
         pid="$(cat "$run/sudoclaude-text.pid" 2>/dev/null)"
         if [[ -n "$pid" ]] && grep -qa sudoclaude.voice "/proc/$pid/cmdline" 2>/dev/null; then
             exec kill -USR1 "$pid"
