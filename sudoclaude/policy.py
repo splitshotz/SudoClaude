@@ -68,7 +68,8 @@ HARD_BLOCK = r"^(claude|claude-desktop|com\.anthropic\.claude.*|zenity|org\.kde\
 
 PRETTY = {"__shell__": "Desktop shell (bar, launcher, overview)",
           "__launch__": "Run commands / launch programs",
-          "__clipboard__": "Read your clipboard"}
+          "__clipboard__": "Read your clipboard",
+          "phone": "Your phone"}
 
 
 def _norm(app):
@@ -159,6 +160,8 @@ class Policy:
 
     def is_sensitive(self, app):
         a = _norm(app)
+        if a.startswith("phone:"):
+            return True  # banking, password and settings apps on the phone
         return bool(re.match(SENSITIVE, a)) or a in {_norm(x) for x in
                                                      self.cfg.get("sensitive", [])}
 

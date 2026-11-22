@@ -24,6 +24,7 @@ Short version: you need **Hyprland**. Everything else is either something most H
 | **Dotfiles** | Not tied to mine. Works on plain Hyprland. With end-4's dots (illogical-impulse) it also picks up your Material You colors, screen corner rounding and wallpaper for the glass, and puts its keybinds in `custom/keybinds.lua` or `.conf`. Without them it uses its own colors and adds binds to `hyprland.lua` or `.conf`. |
 | **Overlay** | Optional. Needs Quickshell (end-4 already has it). Without it Claude still works, you just don't see the glass pill, edge glow or Claude's cursor. |
 | **Voice** | Optional. PipeWire, a mic, and about 4 GB of RAM while it runs (it steps aside for games, see Voice). An NVIDIA GPU gets the more natural Chatterbox voice; without one it uses Kokoro on the CPU. |
+| **Phone** | Optional. An Android phone with Wireless debugging (Android 11 or newer) and `adb`. |
 | **Browser extension** | Optional, Chromium only. Firefox-based browsers like Zen are still fully usable through accessibility, they just don't get the tab-level tools. |
 
 ## Install
@@ -86,6 +87,20 @@ Clicking through an app is the fallback, though. Claude is told to use whatever 
 For websites, Claude doesn't have to look at pixels and move your mouse. A small Chromium extension lets it read a page's buttons, links and fields, click and type into them by reference, and screenshot the tab itself, the same way Claude in Chrome works. It does this through Chrome's debugger API, so it works in a background tab while you use the mouse for something else. While it's working, Chromium shows its usual "is debugging this browser" bar; it goes away about 20 seconds after Claude stops.
 
 `./install.sh` sets it up (or run `bin/sudoclaude-browser-setup`), then restart Chromium once. The extension only talks to SudoClaude on this computer, over a local socket that needs a token only your user can read.
+
+## Phone
+
+Claude can use your Android phone too, over Wi-Fi: see the screen, read what's on it, tap, swipe, type, open apps, open links, read your notifications, and press home, back and the volume keys. Ask for something on your phone and it works there the same way it works on your desktop. It reads the screen through Android's accessibility layout, so most taps go to a named button rather than a guessed spot.
+
+To set it up:
+
+1. On the phone, turn on Developer options (tap Build number seven times in About phone), then turn on **Wireless debugging**. The phone and computer need to be on the same Wi-Fi.
+2. In Wireless debugging, tap **Pair device with pairing code** and tell Claude the six digits ("pair my phone, the code is 123456"). That's needed once per computer.
+3. After that it connects on its own whenever the phone is on the network with Wireless debugging on.
+
+It needs `adb`: `./install.sh --phone` installs it along with scrcpy, or it uses the one from the Android SDK if you have Android Studio. With scrcpy, Claude can also open a live mirror of the phone on your desktop so you can watch.
+
+Some things stay with you. Claude can wake the phone and swipe past the lock screen, but a PIN, pattern or fingerprint is yours to enter. Banking, payment, password manager and Settings apps ask you before Claude taps or types in them. Typing goes through adb, which only handles plain text; for emoji and accented letters, install [ADBKeyboard](https://github.com/senzhk/ADBKeyBoard) on the phone.
 
 ## Keeping usage down
 
