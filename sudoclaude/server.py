@@ -1497,11 +1497,48 @@ TOOLS = [
          "kind": {"type": "string", "enum": ["songs", "albums", "artists", "playlists"]},
          "percent": {"type": "integer"}, "seconds": {"type": "integer"}},
          "required": ["action"]}},
+    {"name": "phone",
+     "description": "The user's Android phone, over wireless ADB. Use it like they would. "
+                    "see: screenshot with every element numbered (refs like p12) plus the "
+                    "list, the best first look; screenshot: just the picture; tap / "
+                    "long_press / double_tap (ref, or x,y in the last phone image); swipe "
+                    "(x,y to x2,y2, ms); scroll (direction up/down/left/right, amount, "
+                    "optional ref or x,y to scroll inside); type (text, submit=true presses "
+                    "enter; tap the field first); key (home, back, recents, enter, delete, "
+                    "notifications, quick_settings, volume_up, power, or any KEYCODE_*); "
+                    "open_app (name or package); apps (installed launchable packages, query "
+                    "to filter); open_url; notifications (current ones as text); status "
+                    "(battery, lock, foreground app); wake (turn the screen on and swipe past "
+                    "the lock screen; a PIN is for the user); shell (an adb shell command, "
+                    "for things faster done directly, like settings or am/pm); connect; pair "
+                    "(code: the six digits from Wireless debugging > Pair device with pairing "
+                    "code, only needed once per computer); mirror (show the phone's screen in "
+                    "a window on the desktop, needs scrcpy). Actions run in order from "
+                    "`actions` too. after='low'|'normal' adds a screenshot when done.",
+     "inputSchema": {"type": "object", "properties": {
+         "action": {"type": "string", "enum": [
+             "see", "screenshot", "tap", "long_press", "double_tap", "swipe", "scroll",
+             "type", "key", "open_app", "apps", "open_url", "notifications", "status", "wake",
+             "shell", "connect", "pair", "mirror", "wait"]},
+         "actions": {"type": "array", "items": {"type": "object"},
+                     "description": "Several phone actions, run in order."},
+         "ref": {"type": "string"}, "x": {"type": "number"}, "y": {"type": "number"},
+         "x2": {"type": "number"}, "y2": {"type": "number"}, "ms": {"type": "integer"},
+         "direction": {"type": "string", "enum": ["up", "down", "left", "right"]},
+         "amount": {"type": "number"}, "text": {"type": "string"},
+         "submit": {"type": "boolean"}, "key": {"type": "string"},
+         "name": {"type": "string"}, "url": {"type": "string"}, "query": {"type": "string"},
+         "command": {"type": "string"}, "code": {"type": "string"},
+         "host": {"type": "string"}, "port": {"type": "integer"},
+         "seconds": {"type": "number"}, "interactive_only": {"type": "boolean"},
+         "detail": {"type": "string", "enum": ["low", "normal", "high"]},
+         "after": {"type": "string", "enum": ["none", "low", "normal", "high"]}}}},
 ]
 
-INSTRUCTIONS = """Controls the user's Linux desktop (Hyprland). Whenever the user wants
-something done on their computer, do it without asking for confirmation; the server
-itself asks the user before sensitive apps.
+INSTRUCTIONS = """Controls the user's Linux desktop (Hyprland) and their Android phone (the
+phone tool). Whenever the user wants something done on their computer or phone, do it
+without asking for confirmation; the server itself asks the user before sensitive apps.
+On the phone, start with phone see, act by ref, and batch predictable steps in `actions`.
 Pick the best tool for each step, which often isn't this one. Driving a GUI is the
 fallback, not the default. Before clicking through an app, check whether you have
 something more direct: an MCP server or skill made for that app (Unity, Blender, Figma,
@@ -2010,7 +2047,109 @@ def tool_music(a):
         return [txt(f"music: {e}")]
 
 
-HANDLERS = {"computer": tool_computer, "open_application": tool_open_application,
+_phone = None
+
+
+def tool_phone(a):
+    global _phone
+    from .phone import Phone, PhoneError
+    if _phone is None:
+        _phone = Phone(log=log)
+    p = _phone
+    steps = a.get("actions") or [a]
+    out, picture = [], None
+    def approve(app):
+        from .policy import PRETTY
+        PRETTY.setdefault(app, f"{app.split(':', 1)[1]} on your phone")
+        D.policy.require(app, "click", "your phone")
+    try:
+        for i, st in enumerate(steps):
+            act = st.get("action")
+            if not act:
+                raise ValueError("each phone step needs an action")
+            looking = act in ("see", "screenshot", "notifications", "status", "apps", "wait")
+            if act not in ("pair", "connect"):
+                D.policy.require("phone", "view" if looking else "click", "your phone")
+            if not looking and act not in ("pair", "connect"):
+                D.begin("On your phone", act.replace("_", " ").capitalize())
+            if act in ("tap", "long_press", "double_tap", "type", "swipe", "shell"):
+                p.guard(approve)
+            if act == "see":
+                data, legend = p.see(st.get("detail", "normal"), st.get("interactive_only", False))
+                picture = None
+                out += [img_block(data), txt(legend)]
+            elif act == "screenshot":
+                data, meta = p.screenshot(st.get("detail", "normal"))
+                out += [img_block(data), txt(meta)]
+            elif act in ("tap", "long_press", "double_tap"):
+                fn = {"tap": p.tap, "long_press": p.long_press, "double_tap": p.double_tap}[act]
+                kw = {"ms": st["ms"]} if act == "long_press" and st.get("ms") else {}
+                px, py = fn(st.get("x"), st.get("y"), st.get("ref"), **kw)
+                out.append(txt(f"{act} at {px},{py} on the phone"))
+            elif act == "swipe":
+                p.swipe(st["x"], st["y"], st["x2"], st["y2"], st.get("ms") or 300)
+                out.append(txt("swiped"))
+            elif act == "scroll":
+                p.scroll(st.get("direction") or "down", st.get("amount") or 1,
+                         st.get("x"), st.get("y"), st.get("ref"))
+                out.append(txt(f"scrolled {st.get('direction') or 'down'}"))
+            elif act == "type":
+                p.type(st.get("text") or "", bool(st.get("submit")))
+                out.append(txt("typed"))
+            elif act == "key":
+                p.key(st.get("key") or st.get("text") or st.get("name"))
+                out.append(txt(f"pressed {st.get('key') or st.get('text') or st.get('name')}"))
+            elif act == "open_app":
+                out.append(txt(f"opened {p.open_app(st.get('name') or st.get('text') or '')}"))
+            elif act == "apps":
+                out.append(txt("\n".join(p.apps(st.get("query"))) or "no matches"))
+            elif act == "open_url":
+                p.open_url(st.get("url") or st.get("text") or "")
+                out.append(txt("opened"))
+            elif act == "notifications":
+                n = p.notifications()
+                out.append(txt("\n".join(n) if n else "No notifications."))
+            elif act == "status":
+                out.append(txt(p.status()))
+            elif act == "wake":
+                out.append(txt(p.wake()))
+            elif act == "shell":
+                r = p.sh(st.get("command") or st.get("text") or "", timeout=60, check=False)
+                out.append(txt(r[-6000:] if r.strip() else "(no output)"))
+            elif act == "connect":
+                out.append(txt(p.connect(st.get("host"), st.get("port"))))
+            elif act == "pair":
+                out.append(txt(p.pair(st.get("code") or st.get("text"), st.get("host"),
+                                      st.get("port"))))
+            elif act == "mirror":
+                exe = shutil.which("scrcpy")
+                if not exe:
+                    out.append(txt("scrcpy isn't installed (sudo pacman -S scrcpy)."))
+                else:
+                    p.ensure()
+                    cmd = f"{exe} -s {p.serial} --window-title Phone --stay-awake"
+                    if D.comp:
+                        D.comp.launch(cmd, None)
+                    else:
+                        subprocess.Popen(cmd.split(), start_new_session=True)
+                    out.append(txt("Phone mirror window opened."))
+            elif act == "wait":
+                time.sleep(min(10.0, float(st.get("seconds") or 1)))
+            else:
+                raise ValueError(f"unknown phone action {act}")
+            if act in ("tap", "long_press", "double_tap", "swipe", "scroll", "type", "key",
+                       "open_app", "open_url", "wake"):
+                picture = st.get("after") or a.get("after") if i == len(steps) - 1 else None
+        if picture and picture != "none":
+            time.sleep(0.6)
+            data, meta = p.screenshot(picture)
+            out += [img_block(data), txt(meta)]
+    except PhoneError as e:
+        out.append(txt(f"phone: {e}"))
+    return out
+
+
+HANDLERS = {"phone": tool_phone, "computer": tool_computer, "open_application": tool_open_application,
             "desktop": tool_desktop, "ui": tool_ui, "access": tool_access,
             "music": tool_music, "browser": tool_browser}
 

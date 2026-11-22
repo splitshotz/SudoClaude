@@ -5,19 +5,21 @@
 #   --ocr / --no-ocr   tesseract for reading text in apps without accessibility
 #   --voice            set up the voice assistant too (install-voice.sh)
 #   --browser          set up the Chromium extension
+#   --phone            install adb and scrcpy for controlling an Android phone
 #   --keybind TALK STOP  combos for the voice keybinds (default SUPER+Space SUPER+SHIFT+Escape)
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN="$DIR/bin/sudoclaude"
 chmod +x "$BIN" "$DIR"/bin/* "$DIR"/*.sh
 
-YES=0; OCR=""; VOICE=""; BROWSER=""; TALK="SUPER+Space"; STOP="SUPER+SHIFT+Escape"
+YES=0; OCR=""; VOICE=""; BROWSER=""; PHONE=""; TALK="SUPER+Space"; STOP="SUPER+SHIFT+Escape"
 while (($#)); do
   case "$1" in
     --yes) YES=1 ;;
     --ocr) OCR=1 ;; --no-ocr) OCR=0 ;;
     --voice) VOICE=1 ;; --no-voice) VOICE=0 ;;
     --browser) BROWSER=1 ;; --no-browser) BROWSER=0 ;;
+    --phone) PHONE=1 ;; --no-phone) PHONE=0 ;;
     --keybind) TALK="$2"; STOP="$3"; shift 2 ;;
   esac
   shift
@@ -82,6 +84,15 @@ EOF
 if command -v claude >/dev/null; then
   claude mcp remove -s user sudoclaude >/dev/null 2>&1 || true
   claude mcp add -s user sudoclaude -- "$BIN" && echo "Added to Claude Code"
+fi
+
+if command -v pacman >/dev/null; then
+  phone=()
+  command -v adb >/dev/null || [[ -x "$HOME/Android/Sdk/platform-tools/adb" ]] || phone+=(android-tools)
+  command -v scrcpy >/dev/null || phone+=(scrcpy)
+  if ((${#phone[@]})) && { [[ "$PHONE" == 1 ]] || { [[ -z "$PHONE" ]] && ask "Install ${phone[*]} so Claude can use your Android phone?" n; }; }; then
+    asroot pacman -S --needed --noconfirm "${phone[@]}"
+  fi
 fi
 
 if command -v chromium >/dev/null || command -v google-chrome-stable >/dev/null; then
