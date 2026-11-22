@@ -301,18 +301,38 @@ class Phone:
         return self.size
 
     def capture(self):
+        """Raw pixels gzipped on the phone: about twice as fast as screencap's PNG."""
+        import gzip
+        import struct
         from PIL import Image
-        cmd = "screencap -p"
+        cmd = "screencap 2>/dev/null | gzip -1"
         if self.fx_ready and time.time() < self.fx_until:
             # keep Claude's own glow and cursor out of what it looks at
-            cmd = self.fx("peek") + "sleep 0.06; screencap -p; " + self.fx("unpeek")
-        data = self.sh(cmd, binary=True, timeout=25)
-        if not data.startswith(b"\x89PNG"):
-            raise PhoneError("screenshot failed (the phone may be locked or showing a secure "
-                             "screen)")
-        img = Image.open(io.BytesIO(data)).convert("RGB")
-        self.size = img.size  # follows rotation
-        return img
+            cmd = self.fx("peek") + "sleep 0.06; screencap 2>/dev/null | gzip -1; " + self.fx("unpeek")
+        raw = self.sh(cmd, binary=True, timeout=25)
+        try:
+            data = gzip.decompress(raw[max(0, raw.find(b"\x1f\x8b")):])
+        except (OSError, EOFError):
+            data = b""
+        # Header is width, height, format (and a colour space on Android 9+). Phones
+        # with two screens print a warning first, so look for where it starts.
+        for off in range(0, min(len(data), 4096)):
+            if len(data) - off < 16:
+                break
+            w, h, fmt = struct.unpack_from("<III", data, off)
+            if not (100 < w < 10000 and 100 < h < 10000 and fmt in (1, 2, 5)):
+                continue
+            for hdr in (16, 12):
+                if len(data) - off - hdr == w * h * 4:
+                    px = data[off + hdr:]
+                    img = Image.frombuffer("RGBA", (w, h), px, "raw", "RGBA", 0, 1)
+                    if fmt == 5:  # BGRA
+                        b, g, r, a = img.split()
+                        img = Image.merge("RGBA", (r, g, b, a))
+                    self.size = (w, h)
+                    return img.convert("RGB")
+        raise PhoneError("screenshot failed (the phone may be locked or showing a secure "
+                         "screen)")
 
     def _encode(self, img, edge):
         from PIL import Image
@@ -333,7 +353,10 @@ class Phone:
                       "foreground": self.foreground(), "hint": "tap x,y in this image's pixels"}
 
     def dump(self):
-        out = self.sh("uiautomator dump /dev/tty", timeout=25, check=False)
+        # Newer Android won't write the dump to /dev/tty, so go through a file.
+        out = self.sh("uiautomator dump --compressed /data/local/tmp/sudoclaude-ui.xml 2>&1; "
+                      "cat /data/local/tmp/sudoclaude-ui.xml; rm -f /data/local/tmp/sudoclaude-ui.xml",
+                      timeout=25, check=False)
         i, j = out.find("<?xml"), out.rfind("</hierarchy>")
         if i < 0 or j < 0:
             if "idle state" in out:
@@ -383,13 +406,21 @@ class Phone:
     def see(self, detail="normal", interactive_only=False):
         """Screenshot with every element numbered, plus the list. Refs work with tap."""
         from PIL import ImageDraw, ImageFont
+        # The UI dump and the screenshot each take a second or two; do both at once.
+        import threading
+        got = {}
+
+        def dump():
+            try:
+                got["els"] = self.elements(self.dump())
+            except Exception as e:
+                got["err"] = e
+        t = threading.Thread(target=dump, daemon=True)
+        t.start()
         img = self.capture()
-        try:
-            els = self.elements(self.dump())
-        except PhoneError as e:
-            els, note = [], f" ({e})"
-        else:
-            note = ""
+        t.join(30)
+        els = got.get("els", [])
+        note = f" ({got['err']})" if "err" in got else ""
         if interactive_only:
             els = [e for e in els if e["click"] or e["edit"] or e["scroll"]
                    or e["checked"] is not None]
