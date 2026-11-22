@@ -306,6 +306,17 @@ Window {
         }
     }
 
+    // Hold a plain background over everything until the first status check is
+    // back, so an installed setup doesn't flash the welcome screen on launch.
+    Rectangle {
+        anchors.fill: parent
+        color: Theme.bg
+        opacity: backend.loaded ? 0 : 1
+        visible: opacity > 0.01
+        Behavior on opacity { NumberAnimation { duration: 280; easing.type: Easing.OutCubic } }
+        MouseArea { anchors.fill: parent }
+    }
+
     FrameAnimation { running: true; onTriggered: Theme.tick++ }
 
     Component.onCompleted: {

@@ -191,6 +191,10 @@ class Backend(QObject):
     def installed(self):
         return bool(self._status.get("installed"))
 
+    @Property(bool, notify=changed)
+    def loaded(self):
+        return bool(self._status)
+
     @Property(str, notify=changed)
     def version(self):
         return self._status.get("version", "")
