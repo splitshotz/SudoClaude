@@ -98,6 +98,8 @@ To set it up:
 2. In Wireless debugging, tap **Pair device with pairing code** and tell Claude the six digits ("pair my phone, the code is 123456"). That's needed once per computer.
 3. After that it connects on its own whenever the phone is on the network with Wireless debugging on.
 
+While Claude works on the phone you can see it there too, in the same style as the desktop overlay: an orange glow around the edge of the screen, Claude's cursor gliding to each tap with a ripple and a label for what it's doing, and a "Claude is using your phone" notification with a Stop button. That comes from a tiny companion app (`phone/sudoclaude-phone.apk`, built from `phone/overlay`) that SudoClaude installs over adb the first time and keeps out of its own screenshots. On the computer, the pill says "On your phone" instead of lighting up your desktop. Set `"phone_overlay": false` in the config to skip the app.
+
 It needs `adb`: `./install.sh --phone` installs it along with scrcpy, or it uses the one from the Android SDK if you have Android Studio. With scrcpy, Claude can also open a live mirror of the phone on your desktop so you can watch.
 
 Some things stay with you. Claude can wake the phone and swipe past the lock screen, but a PIN, pattern or fingerprint is yours to enter. Banking, payment, password manager and Settings apps ask you before Claude taps or types in them. Typing goes through adb, which only handles plain text; for emoji and accented letters, install [ADBKeyboard](https://github.com/senzhk/ADBKeyBoard) on the phone.

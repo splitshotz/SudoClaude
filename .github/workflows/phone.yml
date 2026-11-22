@@ -1,0 +1,36 @@
+name: Phone overlay
+
+on:
+  pull_request:
+    paths: ["phone/overlay/**", "phone/build.sh", ".github/workflows/phone.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Build
+        run: phone/build.sh
+      # SudoClaude installs the APK from the repo, so a change to the app's source
+      # brings the rebuilt APK into the same pull request.
+      - name: Commit the APK
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add phone/sudoclaude-phone.apk
+          git diff --cached --quiet || { git commit -m "Build the phone overlay APK" && git push; }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sudoclaude-phone
+          path: phone/sudoclaude-phone.apk
