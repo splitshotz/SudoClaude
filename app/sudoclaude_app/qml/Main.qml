@@ -1,233 +1,318 @@
 import QtQuick
 import QtQuick.Window
-import QtQuick.Effects
 import "."
 
 Window {
     id: win
-    width: 1280
-    height: 860
-    minimumWidth: 1000
-    minimumHeight: 700
+    width: 1200
+    height: 800
+    minimumWidth: 980
+    minimumHeight: 660
     visible: true
     title: "SudoClaude"
-    color: Theme.base
+    color: Theme.bg
 
-    FontLoader { source: Qt.resolvedUrl("../../fonts/InstrumentSerif-Regular.ttf") }
-    FontLoader { source: Qt.resolvedUrl("../../fonts/InstrumentSerif-Italic.ttf") }
-    FontLoader { source: Qt.resolvedUrl("../../fonts/InterVariable.ttf") }
+    FontLoader { source: Qt.resolvedUrl("../../fonts/Newsreader.ttf") }
+    FontLoader { source: Qt.resolvedUrl("../../fonts/GoogleSansFlex.ttf") }
+    FontLoader { source: Qt.resolvedUrl("../../fonts/MaterialSymbolsRounded.ttf") }
 
-    // Theme follows the system unless the user picked one.
     readonly property bool systemDark: Qt.styleHints.colorScheme !== Qt.ColorScheme.Light
     Binding { target: Theme; property: "dark"
               value: backend.theme === "dark" || (backend.theme === "system" && win.systemDark) }
     Binding { target: Theme; property: "frost"; value: { Theme.cfgRev; return backend.get("glass.frost") } }
     Binding { target: Theme; property: "lens"; value: { Theme.cfgRev; return backend.get("glass.lens") } }
     Binding { target: Theme; property: "tintMix"; value: { Theme.cfgRev; return backend.get("glass.tint") } }
+
+    readonly property bool setup: !backend.installed || setupPage.holding
+    property string tab: "overview"
+    readonly property var pages: [
+        {id: "overview", label: "Overview", icon: "space_dashboard"},
+        {id: "computer", label: "Computer", icon: "desktop_windows"},
+        {id: "phone", label: "Phone", icon: "smartphone"},
+        {id: "assistant", label: "Assistant", icon: "graphic_eq"},
+        {id: "appearance", label: "Appearance", icon: "palette"},
+        {id: "keyboard", label: "Keyboard", icon: "keyboard"},
+        {id: "updates", label: "Updates", icon: "system_update",
+         badge: backend.updateAvailable || backend.appUpdateAvailable},
+        {id: "about", label: "About", icon: "info"}]
+    readonly property real sideW: 244
+    readonly property real inset: sideW + 20
+
     Connections {
         target: backend
         function onConfigChanged() { Theme.cfgRev++ }
         function onToast(t) { toast.show(t) }
         function onTaskFinished(task, ok, msg) {
-            if (task === "doctor") { doctorSheet.text = msg; doctorSheet.ok = ok; doctorSheet.open = true }
-            else if (task === "keybinds") toast.show(ok ? "Keys updated" : "Couldn't set those keys")
+            if (task === "doctor") { doctorSheet.text = msg; doctorSheet.ok = ok; doctorSheet.busy = false }
+            else if (task === "keybinds") toast.show(ok ? "Shortcuts saved" : "Couldn't save those shortcuts")
             else if (task === "uninstall") { uninstallSheet.open = false; toast.show(ok ? "SudoClaude was uninstalled" : msg) }
+            else if (task === "phone-pair") toast.show(ok ? "Phone paired" : msg)
+            else if (task === "phone-connect" && !ok) toast.show(msg)
         }
     }
 
-    // ---- the scene everything refracts -------------------------------------------
+    // ---- the content layer: everything the floating glass refracts ---------------
     Item {
         id: scene
         anchors.fill: parent
 
-        ShaderEffect {
-            id: backdrop
+        Rectangle { anchors.fill: parent; color: Theme.bg }
+
+        // One composed mark in the sidebar's empty middle, between the nav and
+        // the status line: a scalloped shape with a smaller one set against its
+        // upper right, under the glass so it bends them. It only shows when
+        // there's room for it, and turns very slowly.
+        Item {
+            id: ambient
+            readonly property real y0: 450
+            readonly property real y1: parent.height - 100
+            readonly property real d: Math.min(176, y1 - y0 - 30)
+            x: 10
+            y: y0 + (y1 - y0 - d) / 2 + 10
+            width: win.sideW
+            height: d
+            opacity: win.setup || d < 120 ? 0 : 1
+            Behavior on opacity { NumberAnimation { duration: 500 } }
+            property real t: 0
+            NumberAnimation on t { from: 0; to: Math.PI * 2; duration: 120000; loops: Animation.Infinite }
+            Blob {
+                width: ambient.d; height: ambient.d
+                x: (parent.width - width) / 2 - ambient.d * 0.08
+                y: 0
+                lobes: 12; depth: 0.06
+                spin: ambient.t
+                tone: Theme.accentSoft
+            }
+            Blob {
+                width: ambient.d * 0.42; height: width
+                x: parent.width / 2 + ambient.d * 0.2
+                y: -ambient.d * 0.12
+                lobes: 4; depth: 0.15
+                spin: -ambient.t * 2
+                tone: Theme.dark ? "#2E2A3A" : "#E6E0F2"
+            }
+        }
+
+        SetupPage {
+            id: setupPage
+            objectName: "setupPage"
             anchors.fill: parent
-            property size size: Qt.size(width, height)
-            property real time: 0
-            property real dark: Theme.dark ? 1 : 0
-            Behavior on dark { NumberAnimation { duration: 600; easing.type: Easing.InOutQuad } }
-            property real hue: scene.setup ? setupPage.stepIndex / 5 : 0.4
-            Behavior on hue { NumberAnimation { duration: 1400; easing.type: Easing.InOutCubic } }
-            // Warm charcoal or paper, with Claude's orange as the light in it.
-            property color k1: Theme.dark ? "#141010" : "#F6F1EA"
-            property color k2: Theme.dark ? "#231915" : "#EFE4D9"
-            property color k3: Theme.dark ? "#C9502A" : "#F4A27C"
-            Behavior on k1 { ColorAnimation { duration: 700 } }
-            Behavior on k2 { ColorAnimation { duration: 700 } }
-            Behavior on k3 { ColorAnimation { duration: 700 } }
-            property vector4d c1: Qt.vector4d(k1.r, k1.g, k1.b, 1)
-            property vector4d c2: Qt.vector4d(k2.r, k2.g, k2.b, 1)
-            property vector4d c3: Qt.vector4d(k3.r, k3.g, k3.b, 1)
-            NumberAnimation on time { from: 0; to: 100000; duration: 100000000; loops: Animation.Infinite }
-            fragmentShader: Qt.resolvedUrl("shaders/backdrop.frag.qsb")
-        }
-        ShaderEffectSource {
-            id: backdropTex
-            width: 0; height: 0
-            sourceItem: backdrop
-            live: true
+            visible: opacity > 0.01
+            opacity: win.setup ? 1 : 0
+            Behavior on opacity { NumberAnimation { duration: 450 } }
         }
 
-        // ---- pages --------------------------------------------------------------
-        readonly property bool setup: !backend.installed || setupPage.holding
-        property string tab: "home"
-        readonly property string current: setup ? "setup" : tab
-
-        component PageHost: Item {
+        component Host: Item {
             id: host
             property string name
-            readonly property bool on: scene.current === name
+            readonly property bool on: !win.setup && win.tab === name
             property real t: on ? 1 : 0
-            Behavior on t { NumberAnimation { duration: 520; easing.type: Easing.OutCubic } }
+            Behavior on t { NumberAnimation { duration: 380; easing.type: Easing.OutCubic } }
             anchors.fill: parent
-            visible: t > 0.002
+            visible: t > 0.005
             opacity: t
-            scale: 0.97 + 0.03 * t
-            // Pages blur into and out of focus as they swap.
-            layer.enabled: visible
-            layer.effect: MultiEffect {
-                blurEnabled: true
-                blurMax: 48
-                blur: 1 - host.t
-            }
+            transform: Translate { y: (1 - host.t) * 18 }
         }
 
-        PageHost { name: "setup"; SetupPage { id: setupPage; objectName: "setupPage"; anchors.fill: parent; shown: parent.on } }
-        PageHost { name: "home"; HomePage { anchors.fill: parent; shown: parent.on
-                                            onOpenUpdates: scene.tab = "updates"
-                                            onShowDoctor: { doctorSheet.text = "Checking…"; doctorSheet.ok = true; doctorSheet.open = true; backend.doctor() } } }
-        PageHost { name: "settings"; SettingsPage { anchors.fill: parent; shown: parent.on
-                                                    onAskUninstall: uninstallSheet.open = true
-                                                    onAskEnableVoice: voiceSheet.open = true } }
-        PageHost { name: "updates"; UpdatesPage { anchors.fill: parent; shown: parent.on } }
+        Host { name: "overview"; OverviewPage { id: pOverview; anchors.fill: parent; leftInset: win.inset; onGo: p => win.tab = p } }
+        Host { name: "computer"; ComputerPage { id: pComputer; anchors.fill: parent; leftInset: win.inset; onDoctor: win.runDoctor() } }
+        Host { name: "phone"; PhonePage { id: pPhone; anchors.fill: parent; leftInset: win.inset } }
+        Host { name: "assistant"; AssistantPage { id: pAssistant; anchors.fill: parent; leftInset: win.inset
+                                                  onAskEnableVoice: voiceSheet.open = true } }
+        Host { name: "appearance"; AppearancePage { id: pAppearance; anchors.fill: parent; leftInset: win.inset } }
+        Host { name: "keyboard"; KeyboardPage { id: pKeyboard; anchors.fill: parent; leftInset: win.inset } }
+        Host { name: "updates"; UpdatesPage { id: pUpdates; anchors.fill: parent; leftInset: win.inset } }
+        Host { name: "about"; AboutPage { id: pAbout; anchors.fill: parent; leftInset: win.inset
+                                          onAskUninstall: uninstallSheet.open = true } }
+    }
+    ShaderEffectSource {
+        id: backdropTex
+        sourceItem: scene
+        live: true
+        width: 0; height: 0
+    }
 
-        // ---- chrome -------------------------------------------------------------
-        Text {
-            x: 36
-            y: 30
-            text: "SudoClaude"
-            color: Theme.text
-            opacity: scene.setup ? 0 : 1
-            Behavior on opacity { NumberAnimation { duration: 400 } }
-            font.family: Theme.serif
-            font.italic: true
-            font.pixelSize: 30
-        }
-        TabBar {
-            anchors.horizontalCenter: parent.horizontalCenter
-            y: scene.setup ? -80 : 24
-            Behavior on y { SpringAnimation { spring: 3; damping: 0.45 } }
-            tabs: [{id: "home", label: "Home"}, {id: "settings", label: "Settings"},
-                   {id: "updates", label: backend.updateAvailable || backend.appUpdateAvailable ? "Updates  •" : "Updates"}]
-            current: scene.tab
-            onPicked: id => scene.tab = id
-        }
+    function runDoctor() {
+        doctorSheet.text = ""
+        doctorSheet.busy = true
+        doctorSheet.open = true
+        backend.doctor()
+    }
+    readonly property var current: ({ overview: pOverview, computer: pComputer, phone: pPhone, assistant: pAssistant,
+                                      appearance: pAppearance, keyboard: pKeyboard, updates: pUpdates, about: pAbout })[tab]
 
-        Toast {
-            id: toast
-            anchors.horizontalCenter: parent.horizontalCenter
-            anchors.bottom: parent.bottom
-            anchors.bottomMargin: 34
-        }
+    // ---- the floating layer ---------------------------------------------------------
+    Sidebar {
+        id: sidebar
+        x: win.setup ? -win.sideW - 40 : 10
+        Behavior on x { SpringAnimation { spring: 2.6; damping: 0.42 } }
+        y: 10
+        width: win.sideW
+        height: parent.height - 20
+        items: win.pages
+        current: win.tab
+        onPicked: id => win.tab = id
+    }
 
-        Sheet {
-            id: doctorSheet
-            property string text: ""
-            property bool ok: true
-            title: "Health check"
-            cardWidth: 680
-            onDismissed: open = false
-            Flickable {
-                width: parent.width
-                height: Math.min(420, docText.implicitHeight)
-                contentHeight: docText.implicitHeight
-                clip: true
-                Text {
-                    id: docText
-                    width: parent.width
-                    text: doctorSheet.text
-                    color: doctorSheet.ok ? Theme.dim : Theme.bad
-                    font.family: "monospace"
-                    font.pixelSize: 12
-                    wrapMode: Text.WrapAnywhere
-                }
-            }
-            GlassButton { text: "Close"; onClicked: doctorSheet.open = false }
+    Toolbar {
+        id: toolbar
+        x: parent.width - 10 - width
+        y: win.setup ? -70 : 10
+        Behavior on y { SpringAnimation { spring: 2.6; damping: 0.42 } }
+        IconBtn {
+            visible: win.tab === "computer" || win.tab === "overview"
+            icon: "health_and_safety"
+            onClicked: win.runDoctor()
         }
-
-        Sheet {
-            id: voiceSheet
-            title: "Turn on voice mode?"
-            cardWidth: 640
-            onDismissed: open = false
-            Text {
-                width: parent.width
-                textFormat: Text.StyledText
-                text: "<b>What it costs</b><br>"
-                    + "• While it runs, the speech models use about 4–6 GB of RAM, and the Natural voice about 3 GB of GPU memory on NVIDIA.<br>"
-                    + "• The first Super+Space after it's been off takes a few seconds while the models load.<br>"
-                    + "• “Claude” as a wake word only works while it's running.<br>"
-                    + "• A game that starts while it's using GPU memory can run slower until you restart the game.<br><br>"
-                    + "<b>What keeps it out of the way</b><br>"
-                    + "• It starts only when you press Super+Space, and quits after the “Leave after unused” time.<br>"
-                    + "• It quits on its own when a game starts, and never loads during one; Super+Space opens typing instead.<br>"
-                    + "• Pick the Light voice to keep it off the GPU entirely.<br>"
-                    + "• Start games with it closed, or turn voice mode off again, if a game runs short on memory."
-                color: Theme.dim
-                font.family: Theme.sans
-                font.pixelSize: 15
-                wrapMode: Text.Wrap
-                lineHeight: 1.2
-            }
-            Row {
-                spacing: 12
-                GlassButton {
-                    text: "Turn on voice"
-                    onClicked: { backend.set("voice.enabled", true); voiceSheet.open = false }
-                }
-                GlassButton { text: "Keep typing only"; onClicked: voiceSheet.open = false }
-            }
+        IconBtn {
+            visible: win.tab === "updates"
+            icon: "refresh"
+            onClicked: backend.checkUpdates()
         }
-
-        Sheet {
-            id: uninstallSheet
-            property bool purge: false
-            title: "Uninstall SudoClaude?"
-            onDismissed: open = false
-            Text {
-                width: parent.width
-                text: "Claude loses access to your desktop, the voice assistant stops, and the keybinds and browser flags it added are removed. The source folder stays."
-                color: Theme.dim
-                font.family: Theme.sans
-                font.pixelSize: 15
-                wrapMode: Text.Wrap
-                lineHeight: 1.2
-            }
-            SettingRow {
-                title: "Also delete settings and voice models"
-                GToggle { checked: uninstallSheet.purge; onToggled: v => uninstallSheet.purge = v }
-            }
-            Row {
-                spacing: 12
-                GlassButton {
-                    text: backend.busy === "uninstall" ? "Uninstalling…" : "Uninstall"
-                    danger: true
-                    enabled_: backend.busy === ""
-                    onClicked: backend.uninstall(uninstallSheet.purge)
-                }
-                GlassButton { text: "Cancel"; onClicked: uninstallSheet.open = false }
-            }
+        IconBtn {
+            visible: win.tab === "phone"
+            icon: "sync"
+            spinning: backend.busy === "phone"
+            onClicked: backend.refreshPhone()
+        }
+        IconBtn {
+            visible: win.tab === "overview"
+            icon: "refresh"
+            onClicked: { backend.refresh(); backend.refreshPhone() }
+        }
+        IconBtn {
+            icon: Theme.dark ? "light_mode" : "dark_mode"
+            onClicked: backend.setTheme(Theme.dark ? "light" : "dark")
         }
     }
 
-    // Glass follows things as they scroll and animate.
+    SetupNav {
+        setup: setupPage
+        y: win.setup ? parent.height - 92 : parent.height + 40
+        Behavior on y { SpringAnimation { spring: 2.6; damping: 0.45 } }
+    }
+
+    Toast {
+        id: toast
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.horizontalCenterOffset: win.setup ? 0 : win.inset / 2
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 30
+    }
+
+    // ---- sheets -----------------------------------------------------------------------
+    Sheet {
+        id: doctorSheet
+        property string text: ""
+        property bool ok: true
+        property bool busy: false
+        title: "Health check"
+        icon: "health_and_safety"
+        cardWidth: 680
+        onDismissed: open = false
+        Wave { width: parent.width; visible: doctorSheet.busy; running: doctorSheet.busy && doctorSheet.open }
+        Flickable {
+            width: parent.width
+            visible: !doctorSheet.busy
+            height: Math.min(380, docText.implicitHeight)
+            contentHeight: docText.implicitHeight
+            clip: true
+            Text {
+                id: docText
+                width: parent.width
+                text: doctorSheet.text
+                color: doctorSheet.ok ? Theme.text : Theme.bad
+                font.family: "monospace"
+                font.pixelSize: 12
+                wrapMode: Text.WrapAnywhere
+            }
+        }
+        Btn { text: "Done"; kind: "tonal"; onClicked: doctorSheet.open = false }
+    }
+
+    Sheet {
+        id: voiceSheet
+        title: "Turn on voice?"
+        icon: "graphic_eq"
+        cardWidth: 600
+        onDismissed: open = false
+        Repeater {
+            model: [{i: "memory", t: "While it runs, the speech models use about 4–6 GB of memory, and the Natural voice about 3 GB of GPU memory."},
+                    {i: "timer", t: "The first Super + Space after it's been off takes a few seconds while the models load."},
+                    {i: "hearing", t: "“Claude” works as a wake word only while it's running."},
+                    {i: "sports_esports", t: "It quits when a game starts and never loads during one; typing takes over."},
+                    {i: "bolt", t: "It leaves after the “Leave after unused” time and gives the memory back."}]
+            Row {
+                required property var modelData
+                width: parent.width
+                spacing: 14
+                Icon { name: parent.modelData.i; size: 22; color: Theme.accent }
+                Text {
+                    width: parent.width - 36
+                    text: parent.modelData.t
+                    color: Theme.text
+                    font.family: Theme.sans
+                    font.pixelSize: 15
+                    wrapMode: Text.Wrap
+                    lineHeight: 1.15
+                }
+            }
+        }
+        Row {
+            spacing: 10
+            topPadding: 6
+            Btn { text: "Turn on voice"; icon: "graphic_eq"
+                  onClicked: { backend.set("voice.enabled", true); voiceSheet.open = false } }
+            Btn { text: "Keep typing"; kind: "text"; onClicked: voiceSheet.open = false }
+        }
+    }
+
+    Sheet {
+        id: uninstallSheet
+        property bool purge: false
+        title: "Uninstall SudoClaude?"
+        icon: "delete"
+        onDismissed: open = false
+        Text {
+            width: parent.width
+            text: "Claude loses access to your desktop and phone, the voice stops, and the keybinds and browser flags SudoClaude added are removed. The source folder stays."
+            color: Theme.text
+            font.family: Theme.sans
+            font.pixelSize: 15
+            wrapMode: Text.Wrap
+            lineHeight: 1.15
+        }
+        Row {
+            spacing: 12
+            Switch { checked: uninstallSheet.purge; onToggled: v => uninstallSheet.purge = v }
+            Text {
+                anchors.verticalCenter: parent.verticalCenter
+                text: "Also delete settings and voice models"
+                color: Theme.text
+                font.family: Theme.sans
+                font.pixelSize: 15
+            }
+        }
+        Row {
+            spacing: 10
+            Btn {
+                text: backend.busy === "uninstall" ? "Uninstalling…" : "Uninstall"
+                kind: "danger"
+                busy: backend.busy === "uninstall"
+                active: backend.busy === ""
+                onClicked: backend.uninstall(uninstallSheet.purge)
+            }
+            Btn { text: "Cancel"; kind: "text"; onClicked: uninstallSheet.open = false }
+        }
+    }
+
     FrameAnimation { running: true; onTriggered: Theme.tick++ }
 
     Component.onCompleted: {
         Theme.scene = scene
         Theme.backdrop = backdropTex
         backend.refresh()
+        backend.refreshPhone()
         backend.checkRequirements()
         backend.checkUpdates()
     }

@@ -86,10 +86,10 @@ void main() {
         float L = luma(c);
         c = clamp(mix(vec3(L), c, 1.2), 0.0, 1.0);
         L = luma(c);
-        float dLo = clamp(surround + 0.07, 0.10, 0.18);
-        float dHi = dLo + 0.2;
-        float lHi = clamp(surround - 0.08, 0.80, 0.90);
-        float lLo = lHi - 0.2;
+        float dLo = clamp(surround + 0.09, 0.13, 0.21);
+        float dHi = dLo + 0.15;
+        float lHi = clamp(surround - 0.10, 0.78, 0.88);
+        float lLo = lHi - 0.15;
         float Ld = dLo + (dHi - dLo) * L;
         float Ll = lLo + (lHi - lLo) * L;
         // Shift brightness rather than scale it, so color keeps its real

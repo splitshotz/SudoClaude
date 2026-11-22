@@ -1,27 +1,35 @@
 import QtQuick
 import "."
 
-// A small glass note that rises from the bottom and leaves on its own.
+// A short glass note at the bottom.
 Item {
-    id: toast
+    id: t
     property string text: ""
-    function show(t) { text = t; up = 1; hide.restart() }
-    property real up: 0
-    Behavior on up { SpringAnimation { spring: 3.6; damping: 0.42; epsilon: 0.003 } }
-    Timer { id: hide; interval: 2600; onTriggered: toast.up = 0 }
     width: label.implicitWidth + 44
     height: 46
-    opacity: Math.min(1, up * 1.5)
-    visible: up > 0.01
-    transform: Translate { y: (1 - toast.up) * 40 }
-    GlassSurface { target: toast; radius: toast.height / 2 }
+    opacity: 0
+    scale: 0.85
+    function show(msg) { text = msg; anim.restart() }
+    Glass { radius: 23; band: 9 }
     Text {
         id: label
         anchors.centerIn: parent
-        text: toast.text
+        text: t.text
         color: Theme.text
         font.family: Theme.sans
-        font.pixelSize: 14
+        font.pixelSize: 15
         font.weight: Font.Medium
+    }
+    SequentialAnimation {
+        id: anim
+        ParallelAnimation {
+            NumberAnimation { target: t; property: "opacity"; to: 1; duration: 160 }
+            SpringAnimation { target: t; property: "scale"; to: 1; spring: 4; damping: 0.4 }
+        }
+        PauseAnimation { duration: 2600 }
+        ParallelAnimation {
+            NumberAnimation { target: t; property: "opacity"; to: 0; duration: 260 }
+            NumberAnimation { target: t; property: "scale"; to: 0.92; duration: 260 }
+        }
     }
 }

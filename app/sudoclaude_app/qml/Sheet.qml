@@ -1,46 +1,57 @@
 import QtQuick
 import "."
 
-// Modal glass sheet over a soft dim.
+// A glass dialog over a dimmed window. It grows its lens in as it appears.
 Item {
-    id: sheet
-    anchors.fill: parent
+    id: s
     property bool open: false
     property string title: ""
+    property string icon: ""
+    property real cardWidth: 520
     default property alias content: body.data
-    property real cardWidth: 560
     signal dismissed()
+    anchors.fill: parent
+    visible: t > 0.01
+    z: 50
 
     property real t: open ? 1 : 0
-    Behavior on t { SpringAnimation { spring: 3.4; damping: 0.45; epsilon: 0.003 } }
-    visible: t > 0.01
+    Behavior on t { SpringAnimation { spring: 3.4; damping: 0.5; epsilon: 0.002 } }
 
     Rectangle {
         anchors.fill: parent
-        color: Theme.rgba(Theme.dark ? "#000000" : "#2A1D16", 0.32 * Math.min(1, sheet.t))
-        MouseArea { anchors.fill: parent; onClicked: sheet.dismissed() }
+        color: "#000000"
+        opacity: Math.min(1, s.t) * (Theme.dark ? 0.45 : 0.28)
+        MouseArea { anchors.fill: parent; onClicked: s.dismissed() }
     }
-    GlassCard {
+    Item {
         id: card
-        width: sheet.cardWidth
+        width: Math.min(s.cardWidth, s.width - 80)
+        height: body.implicitHeight + 64
         anchors.centerIn: parent
-        height: col.implicitHeight + 2 * padding
-        scale: 0.92 + 0.08 * sheet.t
-        opacity: Math.min(1, sheet.t * 1.4)
-        appear: sheet.t
+        anchors.verticalCenterOffset: (1 - s.t) * 24
+        scale: 0.9 + 0.1 * s.t
+        opacity: Math.min(1, s.t * 1.6)
+        Glass { radius: 30; band: 14 * Math.min(1, s.t); margin: 24 }
+        MouseArea { anchors.fill: parent }
         Column {
-            id: col
-            width: card.width - 2 * card.padding
-            spacing: 16
-            Text {
-                text: sheet.title
-                color: Theme.text
-                font.family: Theme.serif
-                font.pixelSize: 36
-                width: parent.width
-                wrapMode: Text.Wrap
+            id: body
+            x: 32
+            y: 32
+            width: parent.width - 64
+            spacing: 18
+            Row {
+                spacing: 12
+                visible: s.title !== ""
+                Icon { visible: s.icon !== ""; name: s.icon; size: 26; color: Theme.accent; anchors.verticalCenter: parent.verticalCenter }
+                Text {
+                    text: s.title
+                    color: Theme.text
+                    font.family: Theme.serif
+                    font.pixelSize: 28
+                    font.variableAxes: ({ "opsz": 48, "wght": 450 })
+                    anchors.verticalCenter: parent.verticalCenter
+                }
             }
-            Column { id: body; width: parent.width; spacing: 14 }
         }
     }
 }
