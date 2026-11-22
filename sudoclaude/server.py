@@ -201,6 +201,13 @@ class Desktop:
         if self.policy.cfg.get("overlay", True):
             self.overlay.send(**msg)
 
+    def begin_phone(self, action=""):
+        """The pill says Claude is on the phone; no edge or cursor on the desktop."""
+        self.policy.touch()
+        self._idle_flag = False
+        if self.policy.cfg.get("overlay", True):
+            self.overlay.send(status="On your phone", action=action, idle=False, mode="phone")
+
     def flow_mode(self, active=None):
         if not self.comp or self.comp.name != "hyprland":
             return False
@@ -2070,8 +2077,11 @@ def tool_phone(a):
             looking = act in ("see", "screenshot", "notifications", "status", "apps", "wait")
             if act not in ("pair", "connect"):
                 D.policy.require("phone", "view" if looking else "click", "your phone")
-            if not looking and act not in ("pair", "connect"):
-                D.begin("On your phone", act.replace("_", " ").capitalize())
+            if act not in ("pair", "connect"):
+                if i == 0 and p.check_stop():
+                    raise InterruptedError("The user pressed Stop on the phone. Ask before "
+                                           "continuing.")
+                D.begin_phone(act.replace("_", " ").capitalize())
             if act in ("tap", "long_press", "double_tap", "type", "swipe", "shell"):
                 p.guard(approve)
             if act == "see":

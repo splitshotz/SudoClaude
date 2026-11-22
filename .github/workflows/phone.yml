@@ -1,0 +1,25 @@
+name: Phone overlay
+
+on:
+  pull_request:
+    paths: ["phone/**", ".github/workflows/phone.yml"]
+  push:
+    branches: [main]
+    paths: ["phone/overlay/**", "phone/build.sh"]
+  workflow_dispatch:
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Build
+        run: phone/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sudoclaude-phone
+          path: phone/sudoclaude-phone.apk

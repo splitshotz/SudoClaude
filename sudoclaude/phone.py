@@ -17,6 +17,11 @@ import time
 import xml.etree.ElementTree as ET
 
 STATE = os.path.expanduser("~/.config/sudoclaude/phone.json")
+CONFIG = os.path.expanduser("~/.config/sudoclaude/config.json")
+OVERLAY = "io.github.splitshotz.sudoclaude.phone"
+APK = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "phone",
+                   "sudoclaude-phone.apk")
+STOP_FILE = f"/sdcard/Android/data/{OVERLAY}/files/stop"
 KEYS = {
     "home": "KEYCODE_HOME", "back": "KEYCODE_BACK", "recents": "KEYCODE_APP_SWITCH",
     "enter": "KEYCODE_ENTER", "delete": "KEYCODE_DEL", "backspace": "KEYCODE_DEL",
@@ -86,6 +91,9 @@ class Phone:
         self.scale = 1.0          # screenshot pixels -> real pixels
         self.marks = {}           # ref -> (x, y) in real pixels
         self.state = _load()
+        self.fx_ready = None      # overlay app installed and allowed to draw
+        self.fx_until = 0.0       # the overlay is showing until about then
+        self.stop_seen = None
 
     # ---- plumbing ----------------------------------------------------------------
     def _run(self, args, timeout=20, binary=False, check=True, serial=True):
@@ -226,6 +234,61 @@ class Phone:
         ver = props[2] if len(props) > 2 else "?"
         return f"{name}, Android {ver} ({self.serial})"
 
+    # ---- the overlay on the phone ------------------------------------------------
+    def overlay_on(self):
+        """Installs the small overlay app the first time (and when it changes), so the
+        phone shows Claude's edge glow and cursor like the desktop does."""
+        if self.fx_ready is not None:
+            return self.fx_ready
+        try:
+            with open(CONFIG) as f:
+                if json.load(f).get("phone_overlay") is False:
+                    self.fx_ready = False
+                    return False
+        except (OSError, ValueError):
+            pass
+        self.fx_ready = False
+        if not os.path.exists(APK):
+            return False
+        stamp = f"{os.path.getsize(APK)}-{int(os.path.getmtime(APK))}"
+        have = "package:" in self.sh(f"pm path {OVERLAY}", check=False)
+        if not have or self.state.get("overlay_apk") != stamp:
+            out = self._run(["install", "-r", "-g", APK], timeout=90, check=False)
+            if "Success" not in out:
+                self._run(["uninstall", OVERLAY], timeout=30, check=False)
+                out = self._run(["install", "-g", APK], timeout=90, check=False)
+            if "Success" not in out:
+                self.log(f"phone overlay install failed: {out.strip()[:200]}")
+                return False
+            self.state["overlay_apk"] = stamp
+            _save(self.state)
+        self.sh(f"appops set {OVERLAY} SYSTEM_ALERT_WINDOW allow; "
+                f"pm grant {OVERLAY} android.permission.POST_NOTIFICATIONS", check=False)
+        self.fx_ready = True
+        return True
+
+    def fx(self, op, **extras):
+        """Shell prefix that tells the overlay what's about to happen ('' if it's off)."""
+        if not self.overlay_on():
+            return ""
+        args = []
+        for k, v in extras.items():
+            if v is None:
+                continue
+            args += ["--ei" if isinstance(v, int) else "--es", k,
+                     str(v) if isinstance(v, int) else shlex.quote(str(v))]
+        self.fx_until = time.time() + 7
+        return (f"cmd activity start-foreground-service -n {OVERLAY}/.OverlayService "
+                f"-a {op} {' '.join(args)} >/dev/null 2>&1; ")
+
+    def check_stop(self):
+        """True once if the user pressed Stop in the phone's notification."""
+        if not self.fx_ready:
+            return False
+        out = self.sh(f"stat -c %Y {STOP_FILE} 2>/dev/null", check=False).strip()
+        seen, self.stop_seen = self.stop_seen, out
+        return seen is not None and out != seen and out != ""
+
     # ---- looking -----------------------------------------------------------------
     def screen_size(self):
         if not self.size:
@@ -239,7 +302,11 @@ class Phone:
 
     def capture(self):
         from PIL import Image
-        data = self.sh("screencap -p", binary=True, timeout=25)
+        cmd = "screencap -p"
+        if self.fx_ready and time.time() < self.fx_until:
+            # keep Claude's own glow and cursor out of what it looks at
+            cmd = self.fx("peek") + "sleep 0.06; screencap -p; " + self.fx("unpeek")
+        data = self.sh(cmd, binary=True, timeout=25)
         if not data.startswith(b"\x89PNG"):
             raise PhoneError("screenshot failed (the phone may be locked or showing a secure "
                              "screen)")
@@ -391,25 +458,34 @@ class Phone:
             approve(f"phone:{pkg}")
         return pkg
 
+    def _lead(self, fx, wait):
+        """Overlay command, then a beat so the cursor lands as the touch happens."""
+        return fx + (f"sleep {wait}; " if fx else "")
+
     def tap(self, x=None, y=None, ref=None):
         px, py = self.point(x, y, ref)
-        self.sh(f"input tap {px} {py}")
+        self.sh(self._lead(self.fx("tap", x=px, y=py, label="Tap"), 0.24) + f"input tap {px} {py}")
         return px, py
 
     def long_press(self, x=None, y=None, ref=None, ms=700):
         px, py = self.point(x, y, ref)
-        self.sh(f"input swipe {px} {py} {px} {py} {int(ms)}")
+        self.sh(self._lead(self.fx("tap", x=px, y=py, label="Hold", ms=int(ms)), 0.24)
+                + f"input swipe {px} {py} {px} {py} {int(ms)}")
         return px, py
 
     def double_tap(self, x=None, y=None, ref=None):
         px, py = self.point(x, y, ref)
-        self.sh(f"input tap {px} {py}; input tap {px} {py}")
+        self.sh(self._lead(self.fx("tap", x=px, y=py, label="Double tap"), 0.24)
+                + f"input tap {px} {py}; input tap {px} {py}")
         return px, py
 
+    def _swipe(self, a, b, ms, label):
+        self.sh(self._lead(self.fx("swipe", x=a[0], y=a[1], x2=b[0], y2=b[1], ms=int(ms),
+                                   label=label), 0.17)
+                + f"input swipe {a[0]} {a[1]} {b[0]} {b[1]} {int(ms)}")
+
     def swipe(self, x, y, x2, y2, ms=300):
-        a = self.point(x, y)
-        b = self.point(x2, y2)
-        self.sh(f"input swipe {a[0]} {a[1]} {b[0]} {b[1]} {int(ms)}")
+        self._swipe(self.point(x, y), self.point(x2, y2), ms, "Swipe")
 
     def scroll(self, direction="down", amount=1.0, x=None, y=None, ref=None):
         w, h = self.screen_size()
@@ -421,11 +497,14 @@ class Phone:
                   "right": (-d * w, 0)}[direction]
         x0 = max(5, min(w - 5, cx - dx / 2)); y0 = max(5, min(h - 5, cy - dy / 2))
         x1 = max(5, min(w - 5, cx + dx / 2)); y1 = max(5, min(h - 5, cy + dy / 2))
-        self.sh(f"input swipe {int(x0)} {int(y0)} {int(x1)} {int(y1)} 350")
+        self._swipe((int(x0), int(y0)), (int(x1), int(y1)), 350, "Scroll")
 
     def type(self, text, submit=False):
         if not text and not submit:
             return
+        lead = self.fx("show", label="Typing")
+        if lead:
+            self.sh(lead, check=False)
         lines = text.split("\n")
         for i, line in enumerate(lines):
             if line:
@@ -465,7 +544,8 @@ class Phone:
             return self.sh("cmd statusbar collapse")
         code = KEYS.get(n) or (name if str(name).upper().startswith("KEYCODE_") or
                                str(name).isdigit() else f"KEYCODE_{str(name).upper()}")
-        self.sh(f"input keyevent {code}")
+        label = n.replace("_", " ").capitalize() if n in KEYS else "Key"
+        self.sh(self.fx("show", label=label) + f"input keyevent {code}")
 
     def wake(self):
         self.sh("input keyevent KEYCODE_WAKEUP")
@@ -504,14 +584,16 @@ class Phone:
                 raise PhoneError(f"No app matching '{name}'. phone apps lists what's installed.")
             hits.sort(key=lambda p: (not p.endswith("." + want), len(p)))
             pkg = hits[0]
-        out = self.sh(f"monkey -p {shlex.quote(pkg)} -c android.intent.category.LAUNCHER 1",
+        out = self.sh(self.fx("show", label="Opening")
+                      + f"monkey -p {shlex.quote(pkg)} -c android.intent.category.LAUNCHER 1",
                       check=False)
         if "No activities found" in out or "not found" in out.lower():
             raise PhoneError(f"{pkg} has nothing to open")
         return pkg
 
     def open_url(self, url):
-        self.sh(f"am start -a android.intent.action.VIEW -d {shlex.quote(url)}")
+        self.sh(self.fx("show", label="Opening")
+                + f"am start -a android.intent.action.VIEW -d {shlex.quote(url)}")
 
     def notifications(self):
         out = self.sh("dumpsys notification --noredact", timeout=25, check=False)
