@@ -660,6 +660,8 @@ class Phone:
         bat = self.sh("dumpsys battery", check=False)
         lvl = re.search(r"level: (\d+)", bat)
         chg = re.search(r"(AC|USB|Wireless) powered: true", bat)
-        return {"device": self.describe(), "battery": f"{lvl.group(1)}%" if lvl else "?",
+        name = self.sh("settings get global device_name", check=False).strip()
+        return {"device": self.describe(), "name": "" if name in ("", "null") else name,
+                "battery": f"{lvl.group(1)}%" if lvl else "?",
                 "charging": bool(chg), "awake": self.awake(), "locked": self.locked(),
                 "foreground": self.foreground(), "screen": list(self.screen_size())}

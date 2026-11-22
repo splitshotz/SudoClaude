@@ -16,7 +16,7 @@ import urllib.request
 
 from PySide6.QtCore import Property, QObject, QProcess, QTimer, Signal, Slot
 
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.2.0"
 REPO = "splitshotz/SudoClaude"
 REPO_URL = f"https://github.com/{REPO}"
 HOME = os.path.expanduser("~")
@@ -53,7 +53,11 @@ SECTIONS = {
         "voice.model": "sonnet",
         "voice.deep_model": "opus",
     },
+    "phone": {
+        "phone_overlay": True,
+    },
     "computer": {
+        "hide_in_games": True,
         "approvals": "smart",
         "copilot": True,
         "notifications": True,
@@ -165,6 +169,8 @@ class Backend(QObject):
         self._voice_restart = QTimer(self, singleShot=True, interval=1500)
         self._voice_restart.timeout.connect(self._restart_voice_now)
         self._name = ""
+        self._phone = {}
+        self._recording = False
         threading.Thread(target=self._lookup_name, daemon=True).start()
 
     # ---- basics -----------------------------------------------------------------
@@ -210,6 +216,10 @@ class Backend(QObject):
     def appUpdateAvailable(self):
         v = self._latest.get("version")
         return bool(v and version_tuple(v) > version_tuple(APP_VERSION))
+
+    @Property("QVariant", notify=changed)
+    def phone(self):
+        return self._phone
 
     @Property(str, notify=changed)
     def busy(self):
@@ -462,6 +472,105 @@ class Backend(QObject):
                 self.taskFinished.emit("doctor", False, out or "No answer from the server")
         threading.Thread(target=go, daemon=True).start()
 
+
+    # ---- phone ------------------------------------------------------------------
+    # The phone code lives in the SudoClaude checkout; run it on the host.
+
+    def _phone_py(self, body, timeout=30):
+        code = ("import sys, json; sys.path.insert(0, sys.argv[1]); "
+                "from sudoclaude.phone import Phone, PhoneError, find_adb; "
+                "p = Phone(log=lambda *a: None)\n" + body)
+        c, out = run(["python3", "-c", code, self.repoPath], timeout=timeout)
+        try:
+            return json.loads(out.strip().splitlines()[-1])
+        except (ValueError, IndexError):
+            return {"error": out.strip()[-300:] or "No answer"}
+
+    @Slot()
+    def refreshPhone(self):
+        def go():
+            st = self._phone_py(
+                "if not p.adb:\n print(json.dumps({'adb': False})); sys.exit()\n"
+                "try:\n"
+                " p.ensure(); s = p.status(); s.update(adb=True, connected=True, serial=p.serial,"
+                " model=p.state.get('model', ''),"
+                " paired=True, scrcpy=bool(__import__('shutil').which('scrcpy')))\n"
+                "except PhoneError as e:\n"
+                " s = {'adb': True, 'connected': False, 'paired': bool(p.state.get('serial')),"
+                " 'model': p.state.get('model', ''), 'error': str(e)}\n"
+                "print(json.dumps(s))", timeout=25)
+            self._phone = st
+            self.changed.emit()
+        threading.Thread(target=go, daemon=True).start()
+
+    @Slot(str, str)
+    def pairPhone(self, code, address):
+        def go():
+            self._set_busy("phone")
+            host, _, port = (address or "").strip().partition(":")
+            r = self._phone_py(
+                f"try:\n print(json.dumps({{'ok': True, 'msg': p.pair({json.dumps(code)}, "
+                f"{json.dumps(host or None)}, {json.dumps(port or None)})}}))\n"
+                "except PhoneError as e:\n print(json.dumps({'ok': False, 'msg': str(e)}))",
+                timeout=40)
+            self._set_busy("")
+            self.taskFinished.emit("phone-pair", bool(r.get("ok")), r.get("msg") or r.get("error", ""))
+            self.refreshPhone()
+        threading.Thread(target=go, daemon=True).start()
+
+    @Slot()
+    def connectPhone(self):
+        def go():
+            self._set_busy("phone")
+            r = self._phone_py(
+                "try:\n print(json.dumps({'ok': True, 'msg': p.connect()}))\n"
+                "except PhoneError as e:\n print(json.dumps({'ok': False, 'msg': str(e)}))")
+            self._set_busy("")
+            self.taskFinished.emit("phone-connect", bool(r.get("ok")), r.get("msg") or r.get("error", ""))
+            self.refreshPhone()
+        threading.Thread(target=go, daemon=True).start()
+
+    @Slot()
+    def mirrorPhone(self):
+        serial = self._phone.get("serial") or ""
+        args = ["scrcpy", "--window-title", "Phone", "--stay-awake"] + (["-s", serial] if serial else [])
+        try:
+            subprocess.Popen(host(args), start_new_session=True,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError as e:
+            self.toast.emit(f"Couldn't start scrcpy: {e}")
+
+    # ---- recording a shortcut ------------------------------------------------------
+    # Hyprland grabs bound combos before the app sees them, so while a shortcut is
+    # being recorded Hyprland goes into an empty submap. A detached timer puts it
+    # back even if the app dies mid-recording.
+
+    def _submap(self, name):
+        code = ("import sys; sys.path.insert(0, sys.argv[1]); "
+                "from sudoclaude.compositor import detect; c = detect(); n = sys.argv[2]; "
+                "c.eval('hl.dispatch(hl.dsp.submap(\"%s\"))' % n) if getattr(c, 'lua', False) "
+                "else c.dispatch('submap', n)")
+        return run(["python3", "-c", code, self.repoPath, name], timeout=5)[0] == 0
+
+    @Slot(bool)
+    def recordKeys(self, on):
+        if on == self._recording:
+            return
+        self._recording = on
+        if on:
+            self._submap("sudoclaude_record")
+            code = ("import sys, time; sys.path.insert(0, sys.argv[1]); time.sleep(20); "
+                    "from sudoclaude.compositor import detect; c = detect(); "
+                    "c.eval('hl.dispatch(hl.dsp.submap(\"reset\"))') if getattr(c, 'lua', False) "
+                    "else c.dispatch('submap', 'reset')")
+            try:
+                subprocess.Popen(host(["python3", "-c", code, self.repoPath]), start_new_session=True,
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except OSError:
+                pass
+        else:
+            self._submap("reset")
+
     # ---- updates ----------------------------------------------------------------
 
     @Slot()
@@ -547,8 +656,9 @@ class Backend(QObject):
                 self.logLine.emit(buf["s"])
             self._proc = None
             self._set_busy("")
+            last = next((l for l in reversed(self._log) if l.strip()), "")
             self.taskFinished.emit(task, code == 0,
-                                   "Done" if code == 0 else f"Stopped with exit code {code}")
+                                   "Done" if code == 0 else (last or f"Stopped with exit code {code}"))
             self._refresh()
 
         p.readyRead.connect(out)

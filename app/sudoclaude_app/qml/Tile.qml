@@ -1,68 +1,85 @@
 import QtQuick
 import "."
 
-// A choice in setup: glass that turns orange when picked.
+// An overview card: an expressive shape holding the icon, a status chip, a title
+// and a line about what's going on. The shape turns a little on hover.
 Item {
     id: tile
-    property string title
-    property string body
-    property bool picked
-    signal toggle()
-    width: 300; height: 210
-    scale: tileArea.pressed ? 0.97 : tileArea.containsMouse ? 1.02 : 1
-    Behavior on scale { SpringAnimation { spring: 5; damping: 0.45; epsilon: 0.002 } }
-    GlassSurface {
-        target: tile
-        radius: 26
-        tintColor: tile.picked ? Theme.accent : (Theme.dark ? "#2A2522" : "#FFFBF6")
-        lightColor: tintColor
-        tintMix: tile.picked ? 0.42 : Theme.tintMix
-        Behavior on tintMix { NumberAnimation { duration: 240 } }
+    property string icon: ""
+    property string title: ""
+    property string detail: ""
+    property string chip: ""
+    property string chipTone: "neutral"
+    property real lobes: 8
+    property color tone: Theme.accentSoft
+    property color ink: Theme.accentInk
+    signal clicked()
+    height: 176
+
+    Rectangle {
+        anchors.fill: parent
+        radius: ma.pressed ? 20 : 28
+        Behavior on radius { SpringAnimation { spring: 4; damping: 0.4 } }
+        color: Theme.surface
+        Rectangle {
+            anchors.fill: parent
+            radius: parent.radius
+            color: Theme.text
+            opacity: ma.pressed ? 0.07 : ma.containsMouse ? 0.035 : 0
+            Behavior on opacity { NumberAnimation { duration: 120 } }
+        }
+    }
+    Item {
+        x: 22; y: 22
+        width: 54; height: 54
+        Blob {
+            anchors.fill: parent
+            tone: tile.tone
+            lobes: tile.lobes
+            depth: tile.lobes > 6 ? 0.08 : 0.12
+            spin: ma.containsMouse ? 0.5 : 0
+            Behavior on spin { SpringAnimation { spring: 2.2; damping: 0.35 } }
+        }
+        Icon { anchors.centerIn: parent; name: tile.icon; size: 26; fill: 1; color: tile.ink }
+    }
+    Chip {
+        visible: tile.chip !== ""
+        anchors.right: parent.right
+        anchors.rightMargin: 18
+        y: 22
+        text: tile.chip
+        tone: tile.chipTone
     }
     Column {
-        anchors.fill: parent
-        anchors.margins: 26
-        spacing: 10
-        Item {
-            width: parent.width; height: 26
-            Rectangle {
-                anchors.right: parent.right
-                width: 24; height: 24; radius: 12
-                color: tile.picked ? Theme.pill : "transparent"
-                border.width: tile.picked ? 0 : 1.5
-                border.color: Theme.rgba(Theme.text, 0.35)
-                Behavior on color { ColorAnimation { duration: 200 } }
-                Text {
-                    anchors.centerIn: parent
-                    visible: tile.picked
-                    text: "✓"
-                    color: Theme.pillText
-                    font.pixelSize: 13
-                    font.weight: Font.Bold
-                }
-            }
-        }
+        x: 24
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 22
+        width: parent.width - 48
+        spacing: 4
         Text {
             text: tile.title
-            color: tile.picked && !Theme.dark ? "white" : Theme.text
-            font.family: Theme.serif
-            font.pixelSize: 36
+            color: Theme.text
+            font.family: Theme.sans
+            font.pixelSize: 18
+            font.weight: Font.DemiBold
+            font.variableAxes: ({ "ROND": 60 })
         }
         Text {
             width: parent.width
-            text: tile.body
-            color: tile.picked && !Theme.dark ? Qt.rgba(1, 1, 1, 0.85) : Theme.dim
+            text: tile.detail
+            color: Theme.dim
             font.family: Theme.sans
-            font.pixelSize: 14
+            font.pixelSize: 13
             wrapMode: Text.Wrap
-            lineHeight: 1.2
+            maximumLineCount: 2
+            elide: Text.ElideRight
         }
     }
     MouseArea {
-        id: tileArea
+        id: ma
         anchors.fill: parent
         hoverEnabled: true
         cursorShape: Qt.PointingHandCursor
-        onClicked: tile.toggle()
+        onClicked: tile.clicked()
     }
 }
