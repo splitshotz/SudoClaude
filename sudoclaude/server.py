@@ -1824,6 +1824,7 @@ def tool_desktop(a):
             D.policy.cleanup()
             D.overlay.stop()
             sys.stdout.flush()
+            os.environ["SUDOCLAUDE_RELOADED"] = "1"
             os.execv(sys.executable, [sys.executable] + sys.argv)
         threading.Thread(target=later, daemon=True).start()
         return [txt("restarting with the latest code")]
@@ -2324,7 +2325,7 @@ def handle(msg):
     if method == "initialize":
         pv = (msg.get("params") or {}).get("protocolVersion") or "2025-06-18"
         return {"jsonrpc": "2.0", "id": mid, "result": {
-            "protocolVersion": pv, "capabilities": {"tools": {"listChanged": False}},
+            "protocolVersion": pv, "capabilities": {"tools": {"listChanged": True}},
             "serverInfo": {"name": "sudoclaude", "version": VERSION},
             "instructions": INSTRUCTIONS}}
     if method == "ping":
@@ -2386,6 +2387,11 @@ def main():
             log("browser bridge unavailable:", e)
     threading.Thread(target=start_browser, daemon=True).start()
     out = sys.stdout.buffer
+    if os.environ.pop("SUDOCLAUDE_RELOADED", None):
+        # The client still has the old tool list from before the reload.
+        out.write(json.dumps({"jsonrpc": "2.0", "method": "notifications/tools/list_changed"})
+                  .encode() + b"\n")
+        out.flush()
     try:
         for line in sys.stdin.buffer:
             line = line.strip()
